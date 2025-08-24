@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     db_port: int = 5432
     db_name: str = "clinisysschool"
 
+    # Seed inicial
+    seed_admin_email: str | None = None
+    seed_admin_senha: str | None = None
+    seed_criar: bool = False
+
     class Config:
         env_file = ".env"
         env_prefix = "APP_"
