@@ -25,5 +25,6 @@ class Usuario(UsuarioBase):
     id: int
     ativo: bool
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+    }

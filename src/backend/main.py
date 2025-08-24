@@ -6,73 +6,77 @@ from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
 
-from .database import engine, Base  # noqa: F401 (Base imported for potential runtime metadata introspection)
+from .database import engine, Base  # noqa: F401 (Base importada caso seja necessário introspecção de metadados em runtime)
 from .routers import auth, usuarios, pacientes
 
-API_TITLE = "CliniSys-Escola API"
-API_VERSION = "0.1.0"
+TITULO_API = "CliniSys-Escola API"
+VERSAO_API = "0.1.0"
 
 
-def response_envelope(success: bool, data=None, error: dict | None = None, meta: dict | None = None):
-    return {"success": success, "data": data, "error": error, "meta": meta or {}}
+def envelope_resposta(sucesso: bool, dados=None, erro: dict | None = None, meta: dict | None = None):
+    """Padroniza o formato de saída JSON da API.
+
+    sucesso: indica se a operação foi concluída sem erro
+    dados: payload retornado
+    erro: informações estruturadas sobre a falha
+    meta: metadados adicionais (ex: paginação, duração)
+    """
+    return {"success": sucesso, "data": dados, "error": erro, "meta": meta or {}}
 
 
-class TimingMiddleware(BaseHTTPMiddleware):
+class MiddlewareTempo(BaseHTTPMiddleware):
+    """Mede o tempo de cada requisição e injeta em meta.duration_ms se resposta for JSON envelope."""
+
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        start = time.perf_counter()
+        inicio = time.perf_counter()
         try:
-            response = await call_next(request)
+            resposta = await call_next(request)
         except Exception as exc:  # noqa: BLE001
-            # Minimal log context; handlers will format final response
-            print(f"Unhandled error during request timing: {exc}")
+            # Log mínimo; handlers globais formatam retorno final
+            print(f"Erro não tratado durante medição de tempo: {exc}")
             raise
-        duration = (time.perf_counter() - start) * 1000
-        if hasattr(response, "media_type") and response.media_type == "application/json":
+        duracao = (time.perf_counter() - inicio) * 1000
+        if hasattr(resposta, "media_type") and resposta.media_type == "application/json":
             try:
-                body = b"".join([segment async for segment in response.body_iterator])  # type: ignore[attr-defined]
-                # Reconstruct response body
+                corpo_bytes = b"".join([parte async for parte in resposta.body_iterator])  # type: ignore[attr-defined]
                 from json import loads, dumps
 
-                payload = loads(body or b"null")
+                payload = loads(corpo_bytes or b"null")
                 if isinstance(payload, dict) and "success" in payload:
-                    payload.setdefault("meta", {})["duration_ms"] = round(duration, 2)
-                    new_body = dumps(payload).encode()
-                    response.body_iterator = iter([new_body])  # type: ignore[assignment]
-                    response.headers["content-length"] = str(len(new_body))
-            except Exception:
+                    payload.setdefault("meta", {})["duration_ms"] = round(duracao, 2)
+                    novo_corpo = dumps(payload).encode()
+                    resposta.body_iterator = iter([novo_corpo])  # type: ignore[assignment]
+                    resposta.headers["content-length"] = str(len(novo_corpo))
+            except Exception:  # noqa: BLE001
                 pass
-        return response
+        return resposta
 
 
-app = FastAPI(title=API_TITLE, version=API_VERSION)
-app.add_middleware(TimingMiddleware)
+app = FastAPI(title=TITULO_API, version=VERSAO_API)
+app.add_middleware(MiddlewareTempo)
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 app.include_router(pacientes.router)
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    # Migrations are managed via Alembic (run `alembic upgrade head` externally).
-    # No implicit metadata.create_all() here to avoid drift from migrations.
-    return None
+# Substituir eventos deprecated por lifespan se necessitarmos lógica futura.
 
 
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["saude"])
 async def health() -> dict:
-    return response_envelope(True, {"status": "ok"})
+    return envelope_resposta(True, {"status": "ok"})
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):  # type: ignore[override]
     return JSONResponse(
         status_code=422,
-        content=response_envelope(
+        content=envelope_resposta(
             False,
             None,
-            error={
-                "code": "validation_error",
+            erro={
+                "code": "erro_validacao",
                 "detail": exc.errors(),
             },
             meta={"path": request.url.path},
@@ -84,11 +88,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def unhandled_exception_handler(request: Request, exc: Exception):  # type: ignore[override]
     return JSONResponse(
         status_code=500,
-        content=response_envelope(
+        content=envelope_resposta(
             False,
             None,
-            error={
-                "code": "internal_error",
+            erro={
+                "code": "erro_interno",
                 "detail": "Ocorreu um erro interno.",
             },
             meta={"path": request.url.path},
