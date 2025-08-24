@@ -8,20 +8,23 @@ import time
 
 from .database import engine, Base  # noqa: F401 (Base importada caso seja necessário introspecção de metadados em runtime)
 from .routers import auth, usuarios, pacientes
+from .core.resposta import envelope_resposta
+import logging, json, uuid
 
 TITULO_API = "CliniSys-Escola API"
 VERSAO_API = "0.1.0"
 
 
-def envelope_resposta(sucesso: bool, dados=None, erro: dict | None = None, meta: dict | None = None):
-    """Padroniza o formato de saída JSON da API.
+logger = logging.getLogger("clinisys")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))  # já emitiremos JSON pronto
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
-    sucesso: indica se a operação foi concluída sem erro
-    dados: payload retornado
-    erro: informações estruturadas sobre a falha
-    meta: metadados adicionais (ex: paginação, duração)
-    """
-    return {"success": sucesso, "data": dados, "error": erro, "meta": meta or {}}
+
+def log_json(**campos):  # helper simples
+    logger.info(json.dumps(campos, ensure_ascii=False))
 
 
 class MiddlewareTempo(BaseHTTPMiddleware):
@@ -29,26 +32,36 @@ class MiddlewareTempo(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         inicio = time.perf_counter()
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
         try:
             resposta = await call_next(request)
         except Exception as exc:  # noqa: BLE001
-            # Log mínimo; handlers globais formatam retorno final
-            print(f"Erro não tratado durante medição de tempo: {exc}")
+            log_json(evento="erro_nao_tratado", request_id=request_id, detalhe=str(exc))
             raise
         duracao = (time.perf_counter() - inicio) * 1000
         if hasattr(resposta, "media_type") and resposta.media_type == "application/json":
             try:
                 corpo_bytes = b"".join([parte async for parte in resposta.body_iterator])  # type: ignore[attr-defined]
                 from json import loads, dumps
-
                 payload = loads(corpo_bytes or b"null")
                 if isinstance(payload, dict) and "success" in payload:
-                    payload.setdefault("meta", {})["duration_ms"] = round(duracao, 2)
+                    meta = payload.setdefault("meta", {})
+                    meta["duration_ms"] = round(duracao, 2)
+                    meta.setdefault("request_id", request_id)
                     novo_corpo = dumps(payload).encode()
                     resposta.body_iterator = iter([novo_corpo])  # type: ignore[assignment]
                     resposta.headers["content-length"] = str(len(novo_corpo))
+                    resposta.headers["X-Request-ID"] = request_id
             except Exception:  # noqa: BLE001
                 pass
+        log_json(
+            evento="req",
+            metodo=request.method,
+            caminho=str(request.url.path),
+            status=getattr(resposta, "status_code", None),
+            duracao_ms=round(duracao, 2),
+            request_id=request_id,
+        )
         return resposta
 
 

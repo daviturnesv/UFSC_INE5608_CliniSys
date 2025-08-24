@@ -8,7 +8,8 @@ from ..database import get_db
 from ..schemas import UsuarioCreate, Usuario
 from ..models import UsuarioSistema, PerfilUsuario  # usar enum do modelo para tipagem
 from ..crud.usuario import create_user, get_user_by_email
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
+from ..core.resposta import envelope_resposta
 from .auth import get_current_user
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
@@ -34,7 +35,7 @@ async def criar_usuario(
     return user
 
 
-@router.get("/", response_model=list[Usuario])
+@router.get("/")
 async def listar_usuarios(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
@@ -44,13 +45,30 @@ async def listar_usuarios(
     ativo: Optional[bool] = Query(None),
 ):
     require_admin(current_user)
-    stmt = select(UsuarioSistema).offset(skip).limit(limit).order_by(UsuarioSistema.id)
+    base = select(UsuarioSistema)
+    filtros = []
     if perfil is not None:
-        stmt = stmt.where(UsuarioSistema.perfil == perfil)
+        filtros.append(UsuarioSistema.perfil == perfil)
     if ativo is not None:
-        stmt = stmt.where(UsuarioSistema.ativo == ativo)
-    res = await db.execute(stmt)
-    return res.scalars().all()
+        filtros.append(UsuarioSistema.ativo == ativo)
+    if filtros:
+        for f in filtros:
+            base = base.where(f)
+
+    # total
+    total_stmt = select(func.count()).select_from(UsuarioSistema)
+    if filtros:
+        for f in filtros:
+            total_stmt = total_stmt.where(f)
+    total = (await db.execute(total_stmt)).scalar_one()
+
+    pagina_stmt = base.order_by(UsuarioSistema.id).offset(skip).limit(limit)
+    res = await db.execute(pagina_stmt)
+    registros = res.scalars().all()
+    meta = {"total": total, "limit": limit, "skip": skip, "count": len(registros)}
+    return envelope_resposta(True, [
+        Usuario.model_validate(r) for r in registros
+    ], meta=meta)
 
 
 async def atualizar_status_usuario(
