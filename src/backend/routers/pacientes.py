@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..database import get_db
+from ..schemas import PacienteCreate, Paciente
+from ..crud.paciente import (
+    create_paciente,
+    get_paciente,
+    list_pacientes,
+    get_paciente_by_cpf,
+    update_paciente,
+    delete_paciente,
+)
+from .auth import get_current_user
+from ..models import UsuarioSistema
+
+router = APIRouter(prefix="/pacientes", tags=["pacientes"])
+
+MSG_PACIENTE_NAO_ENCONTRADO = "Paciente não encontrado"
+
+
+@router.post("/", response_model=Paciente, status_code=status.HTTP_201_CREATED)
+async def criar_paciente(
+    payload: PacienteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    existente = await get_paciente_by_cpf(db, payload.cpf)
+    if existente:
+        raise HTTPException(status_code=400, detail="CPF já cadastrado")
+    paciente = await create_paciente(db, **payload.model_dump())
+    return paciente
+
+
+@router.get("/{paciente_id}", response_model=Paciente)
+async def obter_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    paciente = await get_paciente(db, paciente_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
+    return paciente
+
+
+@router.get("/", response_model=list[Paciente])
+async def listar_pacientes(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    return await list_pacientes(db, skip=skip, limit=limit)
+
+
+@router.put("/{paciente_id}", response_model=Paciente)
+async def atualizar_paciente(
+    paciente_id: int,
+    payload: PacienteCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    paciente = await get_paciente(db, paciente_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
+    paciente = await update_paciente(db, paciente, **payload.model_dump())
+    return paciente
+
+
+@router.delete("/{paciente_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    paciente = await get_paciente(db, paciente_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
+    await delete_paciente(db, paciente)
+    return None
