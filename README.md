@@ -78,29 +78,82 @@ Arquitetura **Cliente-Servidor** com um backend centralizado (fonte única de ve
 
 ## Como Começar
 
-O projeto está na fase de **especificação e modelagem**. As instruções de instalação e execução serão adicionadas quando a primeira versão funcional for liberada.
+### 1. Clonar o repositório
 
-Enquanto isso, para contribuir com a documentação:
+```bash
+git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
+cd UFSC_INE5608_CliniSys
+```
 
-1. Clone o repositório:
-   ```bash
-   git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
-   ```
-2. Acesse o diretório do projeto:
-   ```bash
-   cd UFSC_INE5608_CliniSys
-   ```
-3. Crie uma branch para sua contribuição:
-   ```bash
-   git checkout -b docs/minha-contribuicao
-   ```
-4. Após alterações:
-   ```bash
-   git add .
-   git commit -m "docs: melhora documentação de requisitos"
-   git push origin docs/minha-contribuicao
-   ```
-5. Abra um Pull Request no GitHub.
+### 2. Configurar o backend (API)
+
+Criar ambiente virtual (Python 3.12+):
+
+```bash
+python -m venv .venv
+".venv/Scripts/activate"  # Windows PowerShell
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Arquivo `.env`
+
+Crie um arquivo `.env` na raiz (valores de exemplo, ajuste para seu ambiente):
+
+```env
+APP_DB_USER=postgres
+APP_DB_PASSWORD=postgres
+APP_DB_HOST=localhost
+APP_DB_PORT=5432
+APP_DB_NAME=clinisysschool
+APP_SECRET_KEY=trocar_esta_chave
+```
+
+### 4. Banco de dados & Migrações
+
+1. Certifique-se que o PostgreSQL está rodando e o database existe (`clinisysschool`).
+2. Executar migração inicial:
+
+```bash
+alembic upgrade head
+```
+
+Gerar nova revisão após alterar modelos:
+
+```bash
+alembic revision --autogenerate -m "descricao"
+alembic upgrade head
+```
+
+### 5. Rodar a API
+
+```bash
+uvicorn src.backend.main:app --reload
+```
+
+Abrir: <http://127.0.0.1:8000/docs>
+
+### 6. Criar usuário admin (provisório)
+
+Ainda não há seed automático. Use o endpoint de criação de usuário (`POST /usuarios/`) autenticado com um token de um usuário ADMIN existente. Temporariamente você pode inserir manualmente via SQL ou adaptar um script de seed.
+
+### 7. Contribuindo com documentação
+
+1. Crie uma branch:
+
+```bash
+git checkout -b docs/minha-contribuicao
+```
+
+1. Após alterações:
+
+```bash
+git add .
+git commit -m "docs: melhora documentação de requisitos"
+git push origin docs/minha-contribuicao
+```
+
+1. Abra um Pull Request.
 
 ---
 
