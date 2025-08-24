@@ -1,0 +1,58 @@
+# Ambientes Virtuais
+# Ignora a pasta do ambiente virtual para não enviar pacotes instalados
+/venv/
+/.venv/
+/env/
+/.env/
+/ENV/
+/env.bak/
+/venv.bak/
+
+# Arquivos de cache do Python
+# São gerados automaticamente para otimizar a execução
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de IDEs e editores de código
+# Configurações específicas do seu ambiente de desenvolvimento
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos de build e distribuição
+# Gerados ao empacotar o projeto
+/build/
+/dist/
+/downloads/
+/eggs/
+/*.egg-info/
+/sdist/
+/wheels/
+/*.egg
+
+# Arquivos de banco de dados locais
+# Evita enviar o banco de dados de teste/desenvolvimento
+*.db
+*.sqlite3
+
+# Arquivos de log e de ambiente
+# Logs e variáveis de ambiente não devem ser versionados
+*.log
+.env
+
+# Relatórios de testes e cobertura
+.pytest_cache/
+.coverage
+/htmlcov/
+
+# Arquivos de sistema operacional
+.DS_Store
+Thumbs.db
+
+# Enterprise Architect
+# Ignora arquivos de lock, log e backup automático
+*.eap.lock
+*.eap.log
+*.eap.~*
