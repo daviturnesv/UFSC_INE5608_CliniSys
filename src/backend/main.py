@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from .database import engine, Base
+from .database import engine, Base  # noqa: F401 (Base imported for potential runtime metadata introspection)
 from .routers import auth, usuarios, pacientes
 
 app = FastAPI(title="CliniSys-Escola API", version="0.1.0")
@@ -14,9 +14,9 @@ app.include_router(pacientes.router)
 
 @app.on_event("startup")
 async def startup() -> None:
-    # Em produção usar migrações (Alembic). Aqui apenas para bootstrap inicial.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Migrations are managed via Alembic (run `alembic upgrade head` externally).
+    # No implicit metadata.create_all() here to avoid drift from migrations.
+    return None
 
 
 @app.get("/health", tags=["health"])

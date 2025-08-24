@@ -1,0 +1,8 @@
+This directory contains Alembic migration environment and versioned migrations.
+
+Commands (execute from project root):
+  alembic revision --autogenerate -m "mensagem"
+  alembic upgrade head
+  alembic downgrade -1
+
+The env.py dynamically builds the database URL from application settings.
