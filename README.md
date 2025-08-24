@@ -16,7 +16,7 @@ Projeto acadêmico desenvolvido para a disciplina de **Análise e Projeto de Sis
 4. [Estrutura do Repositório](#estrutura-do-repositório)
 5. [Como Começar](#como-começar)
 6. [Autores](#autores)
-7. [Licença](#licença)
+7. [Status futuro](#status-futuro)
 
 ---
 
