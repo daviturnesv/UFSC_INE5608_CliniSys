@@ -6,10 +6,11 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..crud.usuario import authenticate_user
+from ..crud.usuario import authenticate_user, get_user_by_email, create_user
 from ..core.security import create_access_token, decode_token
 from ..core.config import get_settings
 from ..schemas import Usuario
+from ..models import PerfilUsuario
 from ..models import UsuarioSistema
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,3 +47,17 @@ async def get_current_user(
     if not user or not user.ativo:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário inativo ou não encontrado")
     return user
+
+
+@router.get("/me", response_model=Usuario)
+async def read_current_user(current_user: UsuarioSistema = Depends(get_current_user)):
+    return current_user
+
+
+async def seed_admin_user(db: AsyncSession, *, email: str, senha: str) -> bool:
+    """Cria usuário admin padrão se não existir. Retorna True se criado."""
+    existing = await get_user_by_email(db, email)
+    if existing:
+        return False
+    await create_user(db, nome="Administrador", email=email, senha=senha, perfil=PerfilUsuario.admin)
+    return True
