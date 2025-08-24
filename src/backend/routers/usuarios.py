@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
-from typing import Sequence, Optional
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -50,7 +50,28 @@ async def listar_usuarios(
     if ativo is not None:
         stmt = stmt.where(UsuarioSistema.ativo == ativo)
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    return res.scalars().all()
+
+
+async def atualizar_status_usuario(
+    usuario_id: int,
+    ativo: bool,
+    db: AsyncSession,
+    current_user: UsuarioSistema,
+) -> UsuarioSistema:
+    require_admin(current_user)
+    stmt = (
+        update(UsuarioSistema)
+        .where(UsuarioSistema.id == usuario_id)
+        .values(ativo=ativo)
+        .returning(UsuarioSistema)
+    )
+    res = await db.execute(stmt)
+    row = res.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    await db.commit()
+    return row[0]
 
 
 @router.patch("/{usuario_id}/ativar", response_model=Usuario)
@@ -59,19 +80,7 @@ async def ativar_usuario(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
-    require_admin(current_user)
-    stmt = (
-        update(UsuarioSistema)
-        .where(UsuarioSistema.id == usuario_id)
-        .values(ativo=True)
-        .returning(UsuarioSistema)
-    )
-    res = await db.execute(stmt)
-    row = res.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    await db.commit()
-    return row[0]
+    return await atualizar_status_usuario(usuario_id, True, db, current_user)
 
 
 @router.patch("/{usuario_id}/desativar", response_model=Usuario)
@@ -80,16 +89,4 @@ async def desativar_usuario(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
-    require_admin(current_user)
-    stmt = (
-        update(UsuarioSistema)
-        .where(UsuarioSistema.id == usuario_id)
-        .values(ativo=False)
-        .returning(UsuarioSistema)
-    )
-    res = await db.execute(stmt)
-    row = res.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    await db.commit()
-    return row[0]
+    return await atualizar_status_usuario(usuario_id, False, db, current_user)
