@@ -31,7 +31,10 @@ async def criar_usuario(
     if existente:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     perfil = PerfilUsuario(payload.perfil.value)  # garantir enum correto
-    user = await create_user(db, nome=payload.nome, email=payload.email, senha=payload.senha, perfil=perfil)
+    try:
+        user = await create_user(db, nome=payload.nome, email=payload.email, senha=payload.senha, perfil=perfil)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return envelope_resposta(True, Usuario.model_validate(user).model_dump())
 
 

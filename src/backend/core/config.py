@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = "changeme"  # substituir em produção
     access_token_expire_minutes: int = 60
+    refresh_token_expire_minutes: int = 60 * 24 * 7  # 7 dias
     algorithm: str = "HS256"
 
     # Database (override via env vars)

@@ -4,7 +4,9 @@ from typing import AsyncGenerator
 import os
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Session
+from sqlalchemy import event
+from datetime import datetime, timezone
 
 
 class Base(DeclarativeBase):
@@ -44,6 +46,21 @@ SessionLocal = async_sessionmaker(
     expire_on_commit=False,
     class_=AsyncSession,
 )
+
+
+@event.listens_for(Session, "before_flush")
+def _update_timestamp(session, flush_context, instances):  # type: ignore[unused-argument]
+    """Garante updated_at em objetos alterados sem depender de trigger DB.
+
+    Apenas se atributo existir.
+    """
+    agora = datetime.now(timezone.utc)
+    for obj in session.dirty:
+        if hasattr(obj, "updated_at") and session.is_modified(obj, include_collections=False):
+            try:
+                setattr(obj, "updated_at", agora)
+            except Exception:
+                pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
