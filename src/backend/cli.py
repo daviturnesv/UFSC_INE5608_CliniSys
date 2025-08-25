@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import typer
 from typing import Optional
-from .database import get_database_url, Base
+from .database import get_database_url
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from .models import UsuarioSistema, PerfilUsuario
 from .core.security import hash_password
@@ -13,8 +13,7 @@ app_cli = typer.Typer(help="Ferramentas de linha de comando para manutenção/se
 
 async def _seed_admin(email: str, senha: str) -> bool:
     engine = create_async_engine(get_database_url(), future=True, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Assume que as migrações alembic já foram aplicadas. Não criar schema aqui.
     sess_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
     async with sess_factory() as session:
         from sqlalchemy import select

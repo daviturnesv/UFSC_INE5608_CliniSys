@@ -15,13 +15,14 @@ from ..crud.paciente import (
 )
 from .auth import get_current_user
 from ..models import UsuarioSistema
+from ..core.resposta import envelope_resposta
 
 router = APIRouter(prefix="/pacientes", tags=["pacientes"])
 
 MSG_PACIENTE_NAO_ENCONTRADO = "Paciente não encontrado"
 
 
-@router.post("/", response_model=Paciente, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def criar_paciente(
     payload: PacienteCreate,
     db: AsyncSession = Depends(get_db),
@@ -31,23 +32,24 @@ async def criar_paciente(
     if existente:
         raise HTTPException(status_code=400, detail="CPF já cadastrado")
     paciente = await create_paciente(db, **payload.model_dump())
-    return paciente
+    return envelope_resposta(True, Paciente.model_validate(paciente).model_dump())
 
 
-@router.get("/{paciente_id}", response_model=Paciente)
+@router.get("/{paciente_id}")
 async def obter_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
     paciente = await get_paciente(db, paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
-    return paciente
+    return envelope_resposta(True, Paciente.model_validate(paciente).model_dump())
 
 
-@router.get("/", response_model=list[Paciente])
+@router.get("/")
 async def listar_pacientes(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
-    return await list_pacientes(db, skip=skip, limit=limit)
+    registros = await list_pacientes(db, skip=skip, limit=limit)
+    return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta={"count": len(registros), "skip": skip, "limit": limit})
 
 
-@router.put("/{paciente_id}", response_model=Paciente)
+@router.put("/{paciente_id}")
 async def atualizar_paciente(
     paciente_id: int,
     payload: PacienteCreate,
@@ -58,7 +60,7 @@ async def atualizar_paciente(
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
     paciente = await update_paciente(db, paciente, **payload.model_dump())
-    return paciente
+    return envelope_resposta(True, Paciente.model_validate(paciente).model_dump())
 
 
 @router.delete("/{paciente_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -67,4 +69,4 @@ async def remover_paciente(paciente_id: int, db: AsyncSession = Depends(get_db),
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
     await delete_paciente(db, paciente)
-    return None
+    return envelope_resposta(True, None)

@@ -20,7 +20,7 @@ def require_admin(user: UsuarioSistema) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
 
 
-@router.post("/", response_model=Usuario, status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def criar_usuario(
     payload: UsuarioCreate,
     db: AsyncSession = Depends(get_db),
@@ -32,7 +32,7 @@ async def criar_usuario(
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     perfil = PerfilUsuario(payload.perfil.value)  # garantir enum correto
     user = await create_user(db, nome=payload.nome, email=payload.email, senha=payload.senha, perfil=perfil)
-    return user
+    return envelope_resposta(True, Usuario.model_validate(user).model_dump())
 
 
 @router.get("/")
@@ -92,19 +92,21 @@ async def atualizar_status_usuario(
     return row[0]
 
 
-@router.patch("/{usuario_id}/ativar", response_model=Usuario)
+@router.patch("/{usuario_id}/ativar")
 async def ativar_usuario(
     usuario_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
-    return await atualizar_status_usuario(usuario_id, True, db, current_user)
+    u = await atualizar_status_usuario(usuario_id, True, db, current_user)
+    return envelope_resposta(True, Usuario.model_validate(u).model_dump())
 
 
-@router.patch("/{usuario_id}/desativar", response_model=Usuario)
+@router.patch("/{usuario_id}/desativar")
 async def desativar_usuario(
     usuario_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
-    return await atualizar_status_usuario(usuario_id, False, db, current_user)
+    u = await atualizar_status_usuario(usuario_id, False, db, current_user)
+    return envelope_resposta(True, Usuario.model_validate(u).model_dump())

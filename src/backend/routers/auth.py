@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from ..crud.usuario import authenticate_user, get_user_by_email, create_user
 from ..core.security import create_access_token, decode_token
 from ..core.config import get_settings
 from ..schemas import Usuario
+from ..core.resposta import envelope_resposta
 from ..models import PerfilUsuario
 from ..models import UsuarioSistema
 
@@ -18,18 +19,37 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
+FAILED_ATTEMPTS: dict[str, list[float]] = {}
+MAX_ATTEMPTS = 5
+WINDOW_SECONDS = 60
+
+
 @router.post("/token")
 async def login_for_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
-    user = await authenticate_user(db, form_data.username, form_data.password)
+    import time
+
+    username = form_data.username.lower()
+    agora = time.time()
+    tentativas = FAILED_ATTEMPTS.get(username, [])
+    tentativas = [t for t in tentativas if agora - t < WINDOW_SECONDS]
+    if len(tentativas) >= MAX_ATTEMPTS:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Muitas tentativas. Tente novamente mais tarde.")
+
+    user = await authenticate_user(db, username, form_data.password)
     if not user:
+        tentativas.append(agora)
+        FAILED_ATTEMPTS[username] = tentativas
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
+    # reset em sucesso
+    FAILED_ATTEMPTS.pop(username, None)
     settings = get_settings()
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     token = create_access_token({"sub": str(user.id), "perfil": user.perfil.value}, access_token_expires)
-    return {"access_token": token, "token_type": "bearer"}
+    return envelope_resposta(True, {"access_token": token, "token_type": "bearer"})
 
 
 async def get_current_user(
@@ -49,9 +69,9 @@ async def get_current_user(
     return user
 
 
-@router.get("/me", response_model=Usuario)
+@router.get("/me")
 async def read_current_user(current_user: UsuarioSistema = Depends(get_current_user)):
-    return current_user
+    return envelope_resposta(True, Usuario.model_validate(current_user).model_dump())
 
 
 async def seed_admin_user(db: AsyncSession, *, email: str, senha: str) -> bool:

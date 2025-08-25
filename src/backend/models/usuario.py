@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import enum
-from sqlalchemy import String, Boolean, Enum, Integer
+from datetime import datetime
+from sqlalchemy import String, Boolean, Enum, Integer, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
@@ -23,3 +24,5 @@ class UsuarioSistema(Base):
     senha_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     perfil: Mapped[PerfilUsuario] = mapped_column(Enum(PerfilUsuario, name="perfil_usuario"), nullable=False, index=True)
     ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

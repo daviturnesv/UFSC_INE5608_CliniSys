@@ -244,12 +244,20 @@ Campos:
 | username | email do usuário |
 | password | senha |
 
-Resposta:
+Resposta (envelopada):
 
 ```json
 {
-	"access_token": "<JWT>",
-	"token_type": "bearer"
+	"success": true,
+	"data": {
+		"access_token": "<JWT>",
+		"token_type": "bearer"
+	},
+	"error": null,
+	"meta": {
+		"request_id": "...",
+		"duration_ms": 7
+	}
 }
 ```
 
@@ -375,3 +383,48 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 ---
 
 Sugestões ou dúvidas: abra uma Issue no repositório.
+
+---
+
+## Atualizações Recentes (Backend)
+
+- Padronização de todas as respostas da API com envelope `{success, data, error, meta}` (incluindo `/auth/token`).
+- Adição de colunas de auditoria `created_at` e `updated_at` em `usuarios` e `pacientes` (migration: `20250825_add_timestamps`).
+- Rate limiting simples (in-memory) no endpoint de login: máximo de 5 tentativas inválidas por email em uma janela de 60s; excedendo, resposta `429` com detalhe `Muitas tentativas...`.
+- Testes automatizados (pytest + httpx) cobrindo: autenticação (positiva e negativa), CRUD de usuários (ativar/desativar) e CRUD básico de pacientes.
+
+### Observações sobre timestamps
+
+Os campos `created_at` e `updated_at` são preenchidos pelo banco. Em SQLite o `updated_at` não é atualizado automaticamente em updates (não há trigger); a aplicação pode atribuir manualmente se necessário futuramente. Em PostgreSQL recomenda-se criar trigger para atualização automática se consistência estrita for requerida.
+
+### Executando Migrações Após Atualização
+
+Se você já tinha o schema sem os timestamps:
+```bash
+alembic upgrade head
+```
+Caso esteja em desenvolvimento limpo, apenas aplicar head já criará tudo.
+
+### Rate Limiting
+
+Implementação simples em memória — reiniciando o processo limpa o contador. Adequado apenas para ambiente de desenvolvimento/MVP. Para produção usaremos: Redis + limite distribuído, chaves compostas (IP+email) e exponencial backoff.
+
+### Exemplo de Erro de Rate Limit
+
+```json
+{
+	"detail": "Muitas tentativas. Tente novamente mais tarde."
+}
+```
+
+---
+
+## Roadmap Técnico (Próximos Itens Sugeridos)
+
+1. Implementar atualização explícita de `updated_at` via eventos SQLAlchemy ou trigger Postgres.
+2. Introduzir refresh tokens / logout (revogação).
+3. Camada de autorização granular (scopes por endpoint / função).
+4. Paginação consistente (meta total/limit/skip) para pacientes (já parcial) e outros futuros recursos.
+5. Observabilidade: incluir correlação de usuário/perfil no log e export estruturado (e.g. OpenTelemetry).
+6. Proteções adicionais: lockout progressivo, validação de senha forte, política de rotação de secret.
+7. Testes de performance e carga básicos no fluxo de login e listagem.

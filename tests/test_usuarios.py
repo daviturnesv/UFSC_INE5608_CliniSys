@@ -8,7 +8,8 @@ from httpx import AsyncClient
 async def test_listar_usuarios_filtra_e_pagina(cliente: AsyncClient, usuario_admin):
     # Login para obter token
     resp = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
-    token = resp.json()["access_token"]
+    login_json = resp.json()
+    token = login_json["data"]["access_token"] if "data" in login_json else login_json["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # Listar usuários (deve vir ao menos o admin)
@@ -25,7 +26,8 @@ async def test_listar_usuarios_filtra_e_pagina(cliente: AsyncClient, usuario_adm
 async def test_ativar_desativar_usuario(cliente: AsyncClient, usuario_admin):
     # Criar novo usuario
     resp_login = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
-    token = resp_login.json()["access_token"]
+    login_json = resp_login.json()
+    token = login_json["data"]["access_token"] if "data" in login_json else login_json["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     novo = await cliente.post(
@@ -39,7 +41,8 @@ async def test_ativar_desativar_usuario(cliente: AsyncClient, usuario_admin):
         headers=headers,
     )
     assert novo.status_code == 201, novo.text
-    usuario_id = novo.json().get("id") or novo.json().get("data", {}).get("id")
+    novo_json = novo.json()
+    usuario_id = novo_json.get("data", {}).get("id") if "data" in novo_json else novo_json.get("id")
 
     # desativar
     des = await cliente.patch(f"/usuarios/{usuario_id}/desativar", headers=headers)

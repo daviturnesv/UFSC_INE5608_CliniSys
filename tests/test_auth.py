@@ -9,7 +9,12 @@ async def test_login_fluxo_basico(cliente: AsyncClient, usuario_admin):
     # Tentar login com credenciais válidas
     resp = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
     assert resp.status_code == 200, resp.text
-    dados = resp.json()
+    dados_raw = resp.json()
+    # Suporta formato envelopado (success,data,...) ou plano legado
+    if "data" in dados_raw:
+        dados = dados_raw["data"]
+    else:
+        dados = dados_raw
     assert dados["token_type"] == "bearer"
     assert "access_token" in dados
 
