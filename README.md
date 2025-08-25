@@ -1,58 +1,71 @@
 # CliniSys-Escola
 
-![Status do Projeto](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
+Sistema de Gestão para a Clínica-Escola de Odontologia da UFSC.
 
-Sistema de Gestão para Clínica-Escola de Odontologia da UFSC.
-
-Projeto acadêmico desenvolvido para a disciplina de **Análise e Projeto de Sistemas (INE5608)** da Universidade Federal de Santa Catarina (UFSC).
+Projeto acadêmico desenvolvido para a disciplina **INE5608 - Análise e Projeto de Sistemas** (UFSC).
 
 ---
 
 ## Índice
 
-1. [Sobre o Projeto](#sobre-o-projeto)
-2. [Principais Funcionalidades](#principais-funcionalidades)
-3. [Arquitetura e Stack Tecnológico](#arquitetura-e-stack-tecnológico)
+1. [Visão Geral](#visão-geral)
+2. [Funcionalidades Implementadas](#funcionalidades-implementadas)
+3. [Arquitetura e Stack](#arquitetura-e-stack)
 4. [Estrutura do Repositório](#estrutura-do-repositório)
-5. [Como Começar](#como-começar)
-6. [Autores](#autores)
-7. [Status futuro](#status-futuro)
-8. [Contato](#contato)
+5. [Configuração e Execução](#configuração-e-execução)
+	1. [Ambiente e Dependências](#ambiente-e-dependências)
+	2. [Variáveis de Ambiente](#variáveis-de-ambiente)
+	3. [Migrações](#migrações)
+	4. [Seed (Usuário Admin)](#seed-usuário-admin)
+6. [Autenticação e Segurança](#autenticação-e-segurança)
+7. [Padrão de Resposta](#padrão-de-resposta)
+8. [Testes](#testes)
+9. [Atualizações Recentes](#atualizações-recentes)
+10. [Autores](#autores)
 
 ---
 
-## Sobre o Projeto
+## Visão Geral
 
-O **CliniSys-Escola** é um sistema de gestão multiplataforma (Desktop e Mobile) projetado para otimizar a administração e o fluxo de atendimentos da clínica-escola de odontologia da UFSC.
+O **CliniSys-Escola** centraliza dados acadêmicos e clínicos, substituindo planilhas e prontuários físicos, reduzindo inconsistências e melhorando a rastreabilidade e acesso ao histórico dos pacientes.
 
-O objetivo principal é substituir o processo de trabalho atual, baseado em planilhas compartilhadas e prontuários físicos, que apresentam riscos de inconsistência, perda de dados e lentidão no acesso ao histórico dos pacientes. O sistema centraliza as informações em um ambiente digital integrado, seguro e eficiente, melhorando a experiência de alunos, professores supervisores e pacientes.
+Principais objetivos:
 
----
-
-## Principais Funcionalidades
-
-- **Gestão de Perfis de Usuário:** Controle de acesso para Aluno, Professor, Recepcionista e Administrador.
-- **Controle de Triagem e Lista de Espera:** Digitalização do fluxo de triagem com fila centralizada.
-- **Agenda de Consultas Sincronizada:** Agendamento, remarcação e cancelamento com sincronização em tempo real.
-- **Prontuário Eletrônico do Paciente (PEP):** Registro completo de procedimentos e histórico clínico.
-- **Módulo de Supervisão:** Revisão e validação de procedimentos por professores.
-- **Gestão Acadêmica:** Cadastro de alunos e professores e associação às disciplinas de prática clínica.
-- **Funcionamento Offline Parcial:** Cache local para consultas e registro temporário.
+* Unificar informações acadêmicas e clínicas.
+* Oferecer controle de acesso por perfil.
+* Fornecer prontuário eletrônico estruturado.
+* Apoiar supervisão docente sobre atendimentos.
 
 ---
 
-## Arquitetura e Stack Tecnológico
+## Funcionalidades Implementadas
 
-Arquitetura **Cliente-Servidor** com um backend centralizado (fonte única de verdade) consumido por clientes Desktop e Mobile via API.
+Implementado no backend até o momento:
+
+* CRUD de usuários com perfis (admin, professor, recepcionista, aluno) e ativação/desativação.
+* Autenticação via JWT (access tokens) + refresh tokens persistentes com rotação obrigatória.
+* Logout com revogação de access token (blacklist em memória para MVP).
+* Política mínima de senha (>=8 caracteres, ao menos 1 letra e 1 dígito) e rehash automático de senhas quando parâmetros mudam.
+* CRUD básico de pacientes.
+* Envelope de resposta padronizado para endpoints.
+* Rate limiting simples no login (limite de tentativas em janela curta).
+* Campos de auditoria `created_at` / `updated_at` (atualização automática via listener).
+* Testes automatizados (pytest) cobrindo fluxos principais (auth, refresh/logout, política de senha, usuários, pacientes).
+
+---
+
+## Arquitetura e Stack
+
+Arquitetura **cliente-servidor**: backend (FastAPI) exposto via HTTP (JSON). Clientes Desktop/Mobile (em desenvolvimento) consumirão a API. PostgreSQL como banco principal (SQLite em testes).
 
 | Componente | Tecnologia | Justificativa |
 |-----------|------------|---------------|
 | Backend (API) | FastAPI | Alta performance, suporte assíncrono, validação e docs automáticas. |
-| Banco de Dados Central | PostgreSQL | Conformidade ACID e robustez para dados clínicos sensíveis. |
-| Cliente Desktop | PySide6 (Qt for Python) | Widgets avançados e interface profissional. |
-| Cliente Mobile | BeeWare | Interfaces 100% nativas (iOS/Android) e melhor UX. |
-| Persistência Local | SQLite | Cache leve para operação offline e desempenho. |
-| Formato de Comunicação | JSON | Padrão leve, interoperável e amplamente suportado. |
+| Banco de Dados Central | PostgreSQL | Confiabilidade e robustez para dados clínicos. |
+| Cliente Desktop | PySide6 | Interface nativa rica. |
+| Cliente Mobile | BeeWare | Apps nativos. |
+| Persistência Local | SQLite | Cache offline leve. |
+| Formato de Comunicação | JSON | Interoperabilidade. |
 
 ---
 
@@ -68,18 +81,19 @@ Arquitetura **Cliente-Servidor** com um backend centralizado (fonte única de ve
 │   ├── 3.3 Requisitos de domínio  Regras de negócio.EAB
 │   ├── matriz_rastreabilidade.png
 │   └── template_v2.eap
-├── src/                  # (Futuro local do código fonte)
-│   ├── backend/
-│   ├── client_desktop/
-│   └── client_mobile/
+├── src/
+│   ├── backend/          # API FastAPI
+│   ├── client_desktop/   # Futuro cliente desktop
+│   └── client_mobile/    # Futuro cliente mobile
+├── tests/                # Testes automatizados
 └── README.md
 ```
 
 ---
 
-## Como Começar
+## Configuração e Execução
 
-### TL;DR (Quick Start)
+### TL;DR
 
 ```bash
 git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
@@ -93,14 +107,12 @@ uvicorn src.backend.main:app --reload
 
 Abrir <http://127.0.0.1:8000/docs>
 
-### 1. Clonar o repositório
+### Ambiente e Dependências
 
 ```bash
 git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
 cd UFSC_INE5608_CliniSys
 ```
-
-### 2. Configurar o backend (API)
 
 Criar ambiente virtual (Python 3.12+):
 
@@ -111,9 +123,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 3. Arquivo `.env`
+### Variáveis de Ambiente
 
-Crie um arquivo `.env` na raiz (valores de exemplo, ajuste para seu ambiente):
+Criar um arquivo `.env` na raiz (exemplo):
 
 ```env
 APP_DB_USER=postgres
@@ -127,39 +139,27 @@ APP_SEED_ADMIN_EMAIL=
 APP_SEED_ADMIN_SENHA=
 ```
 
-#### 3.1 Tabela de variáveis de ambiente
+Observações:
 
-| Variável | Obrigatória | Default | Descrição | Produção |
-|----------|-------------|---------|-----------|----------|
-| APP_DB_HOST | não | localhost | Host do PostgreSQL | Usar host real/serviço |
-| APP_DB_PORT | não | 5432 | Porta do PostgreSQL | Ajustar se diferente |
-| APP_DB_USER | não | postgres | Usuário DB | Usuário dedicado com mínimos privilégios |
-| APP_DB_PASSWORD | não | postgres | Senha DB | Usar senha forte / secret manager |
-| APP_DB_NAME | não | clinisysschool | Nome do database | Nome provisionado |
-| APP_SECRET_KEY | sim (prática) | changeme/trocar_esta_chave | Chave para assinar JWT | Gerar aleatória forte |
-| APP_SEED_CRIAR | não | false | Habilita auto-seed via CLI | Manter false em prod |
-| APP_SEED_ADMIN_EMAIL | não | `admin@exemplo.com`* | Email admin seed | Definir corporativo |
-| APP_SEED_ADMIN_SENHA | não | admin123* | Senha admin seed | Senha forte temporária |
+* APP_SECRET_KEY: definir valor forte/aleatório (não usar default).
+* APP_SEED_*: apenas para criação inicial de administrador.
 
-Valores marcados com * são usados apenas se chamados via CLI sem parâmetros e não devem ser usados em produção.
+### Migrações
 
-### 4. Banco de dados & Migrações
-
-1. Certifique-se que o PostgreSQL está rodando e o database existe (`clinisysschool`).
-2. Executar migração inicial:
+Banco deve existir previamente (PostgreSQL) ou usar SQLite para experimentação.
 
 ```bash
 alembic upgrade head
 ```
 
-Gerar nova revisão após alterar modelos:
+Gerar nova revisão ao alterar modelos:
 
 ```bash
 alembic revision --autogenerate -m "descricao"
 alembic upgrade head
 ```
 
-### 5. Rodar a API
+Rodar a API:
 
 ```bash
 uvicorn src.backend.main:app --reload
@@ -167,13 +167,11 @@ uvicorn src.backend.main:app --reload
 
 Abrir: <http://127.0.0.1:8000/docs>
 
-### 6. Seed / Usuário Admin
+### Seed (Usuário Admin)
 
-Agora existe um CLI para criar (seed) o usuário administrador inicial de forma idempotente.
+CLI para criação idempotente do administrador inicial.
 
-#### 6.1 Variáveis adicionais no `.env`
-
-Adicione (opcional) para customizar/automatizar:
+Opcional no `.env`:
 
 ```env
 APP_SEED_CRIAR=true                # se true permite e autoriza auto-seed
@@ -181,11 +179,7 @@ APP_SEED_ADMIN_EMAIL=admin@exemplo.com
 APP_SEED_ADMIN_SENHA=admin123
 ```
 
-Se não definir, o CLI usará valores padrão (`admin@exemplo.com` / `admin123`). NÃO usar em produção.
-
-#### 6.2 Comandos do CLI
-
-Listar ajuda:
+Comandos principais:
 
 ```bash
 python -m src.backend.cli --help
@@ -221,17 +215,19 @@ ou
 Admin já existia (admin@exemplo.com)
 ```
 
-#### 6.3 Fluxo sugerido de primeiro uso
+Fluxo inicial resumido:
 
-1. Ajuste `.env` (incluindo seed se quiser).
-2. Rode migrações: `alembic upgrade head`.
-3. Execute: `python -m src.backend.cli seed-admin`.
-4. Inicie API: `uvicorn src.backend.main:app --reload`.
-5. Faça login em `/auth/token` com email/senha definidos.
+1. Ajustar `.env`.
+2. `alembic upgrade head`.
+3. `python -m src.backend.cli seed-admin`.
+4. `uvicorn src.backend.main:app --reload`.
+5. Login em `/auth/token`.
 
-> Segurança: Gere senha forte e altere após o primeiro login em produção.
+---
 
-### 6.4 Exemplo de Autenticação (Login e uso)
+## Autenticação e Segurança
+
+### Login
 
 Endpoint de login:
 
@@ -279,7 +275,43 @@ Depois:
 curl -H "Authorization: Bearer <JWT>" http://127.0.0.1:8000/auth/me
 ```
 
-### 6.5 Envelope de Resposta (Padrão)
+### Refresh Tokens
+
+Fluxo:
+
+1. `POST /auth/token` retorna também `refresh_token`.
+2. Cliente armazena o valor de forma segura.
+3. `POST /auth/refresh` com `{ "refresh_token": "..." }` quando o access expira.
+4. API valida, revoga o usado e retorna novo par (rotação obrigatória).
+5. Reuso de token antigo resulta em `401`.
+
+Armazenamento: apenas hash (bcrypt) + expiração configurável (`refresh_token_expire_minutes`).
+
+### Logout
+
+`POST /auth/logout` revoga o access token atual (blacklist em memória no MVP).
+
+### Política de Senha
+
+Requisitos mínimos:
+
+* >= 8 caracteres
+* Pelo menos uma letra
+* Pelo menos um dígito
+
+Violação: HTTP 400.
+
+### Rate Limiting (Login)
+
+Limite de tentativas inválidas em janela curta com resposta 429 em abuso.
+
+### Campos de Auditoria
+
+`created_at` e `updated_at` mantidos automaticamente (listener na aplicação).
+
+---
+
+## Padrão de Resposta
 
 Formato unificado (quando aplicado):
 
@@ -292,7 +324,7 @@ Formato unificado (quando aplicado):
 }
 ```
 
-Erro:
+Erro (exemplo):
 
 ```json
 {
@@ -302,49 +334,6 @@ Erro:
 	"meta": {"request_id": "def456"}
 }
 ```
-
-### 7. Contribuindo com documentação
-
-1. Crie uma branch:
-
-```bash
-git checkout -b docs/minha-contribuicao
-```
-
-1. Após alterações:
-
-```bash
-git add .
-git commit -m "docs: melhora documentação de requisitos"
-git push origin docs/minha-contribuicao
-```
-
-1. Abra um Pull Request.
-
----
-
-## Autores
-
-- **Davi Turnes Vieira (24100904)** - [@daviturnesv](https://github.com/daviturnesv)
-- Bruno Queiroz Castro (24102975)
-- Igor Velmud Bandero (24102980)
-- Kalel Gomes de Freitas (24102982)
-
----
-
-## Status Futuro
-
-Próximos passos planejados (roadmap inicial):
-
-- Definição do modelo de dados lógico
-- Protótipo de telas (Desktop e Mobile)
-- Implementação do esqueleto da API
-- Módulo de autenticação e autorização
-- MVP com agenda + triagem + prontuário básico
-
----
-
-## Contato
 
 ---
 
@@ -371,60 +360,36 @@ pytest -k login -q
 
 ## Nota de Segurança
 
-- Gere uma SECRET forte:
+Gerar uma SECRET forte:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
-- Não faça commit do `.env` com credenciais sensíveis.
-- Nunca use as credenciais seed padrão em produção.
-- Rotacione a chave JWT se suspeitar de vazamento (invalidando tokens ativos).
+
+Recomendações básicas:
+
+* Não versionar `.env`.
+* Substituir credenciais padrão imediatamente.
+* Rotacionar a chave JWT em caso de suspeita de comprometimento.
 
 ---
 
-Sugestões ou dúvidas: abra uma Issue no repositório.
+## Atualizações Recentes
+
+* Padronização do envelope `{success, data, error, meta}`.
+* Campos de auditoria `created_at` / `updated_at` (listener aplicativo).
+* Rate limiting simples no login.
+* Logout com revogação de token (blacklist em memória).
+* Refresh tokens persistentes com rotação obrigatória.
+* Política mínima de senha e rehash automático.
+* Testes cobrindo autenticação, refresh/logout, política de senha, usuários e pacientes.
 
 ---
 
-## Atualizações Recentes (Backend)
+## Autores
 
-- Padronização de todas as respostas da API com envelope `{success, data, error, meta}` (incluindo `/auth/token`).
-- Adição de colunas de auditoria `created_at` e `updated_at` em `usuarios` e `pacientes` (migration: `20250825_add_timestamps`).
-- Rate limiting simples (in-memory) no endpoint de login: máximo de 5 tentativas inválidas por email em uma janela de 60s; excedendo, resposta `429` com detalhe `Muitas tentativas...`.
-- Testes automatizados (pytest + httpx) cobrindo: autenticação (positiva e negativa), CRUD de usuários (ativar/desativar) e CRUD básico de pacientes.
+* **Davi Turnes Vieira (24100904)** - [@daviturnesv](https://github.com/daviturnesv)
+* Bruno Queiroz Castro (24102975)
+* Igor Velmud Bandero (24102980)
+* Kalel Gomes de Freitas (24102982)
 
-### Observações sobre timestamps
-
-Os campos `created_at` e `updated_at` são preenchidos pelo banco. Em SQLite o `updated_at` não é atualizado automaticamente em updates (não há trigger); a aplicação pode atribuir manualmente se necessário futuramente. Em PostgreSQL recomenda-se criar trigger para atualização automática se consistência estrita for requerida.
-
-### Executando Migrações Após Atualização
-
-Se você já tinha o schema sem os timestamps:
-```bash
-alembic upgrade head
-```
-Caso esteja em desenvolvimento limpo, apenas aplicar head já criará tudo.
-
-### Rate Limiting
-
-Implementação simples em memória — reiniciando o processo limpa o contador. Adequado apenas para ambiente de desenvolvimento/MVP. Para produção usaremos: Redis + limite distribuído, chaves compostas (IP+email) e exponencial backoff.
-
-### Exemplo de Erro de Rate Limit
-
-```json
-{
-	"detail": "Muitas tentativas. Tente novamente mais tarde."
-}
-```
-
----
-
-## Roadmap Técnico (Próximos Itens Sugeridos)
-
-1. Implementar atualização explícita de `updated_at` via eventos SQLAlchemy ou trigger Postgres.
-2. Introduzir refresh tokens / logout (revogação).
-3. Camada de autorização granular (scopes por endpoint / função).
-4. Paginação consistente (meta total/limit/skip) para pacientes (já parcial) e outros futuros recursos.
-5. Observabilidade: incluir correlação de usuário/perfil no log e export estruturado (e.g. OpenTelemetry).
-6. Proteções adicionais: lockout progressivo, validação de senha forte, política de rotação de secret.
-7. Testes de performance e carga básicos no fluxo de login e listagem.
