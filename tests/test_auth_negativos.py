@@ -46,3 +46,18 @@ async def test_rate_limit_basico(cliente: AsyncClient):
             assert resp.status_code == 401, f"Tentativa {i+1} deveria ser 401, obtido {resp.status_code}"
         else:  # 6a deve retornar 429 rate limit
             assert resp.status_code == 429, f"Tentativa {i+1} deveria ser 429, obtido {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_logout_revoga_token(cliente: AsyncClient, usuario_admin):
+    login = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
+    token = login.json()["data"]["access_token"] if "data" in login.json() else login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    me_ok = await cliente.get("/auth/me", headers=headers)
+    assert me_ok.status_code == 200
+    # logout
+    out = await cliente.post("/auth/logout", headers=headers)
+    assert out.status_code == 200
+    # depois deve falhar
+    me_fail = await cliente.get("/auth/me", headers=headers)
+    assert me_fail.status_code == 401

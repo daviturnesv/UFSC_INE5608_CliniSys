@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import time
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +21,15 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
 FAILED_ATTEMPTS: dict[str, list[float]] = {}
-MAX_ATTEMPTS = 5
+FAILED_TOTAL: dict[str, int] = {}
+MAX_ATTEMPTS = 5  # tentativas dentro da janela curta
 WINDOW_SECONDS = 60
+# Escalonamento: após limite de ciclos, aumenta a penalidade
+ESCALATE_THRESHOLD = 10  # falhas acumuladas
+ESCALATED_WINDOW = 300   # 5 minutos
+
+# Blacklist simples de jti revogados (memória)
+REVOKED_JTIS: set[str] = set()
 
 
 @router.post("/token")
@@ -30,19 +38,25 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
-    import time
-
     username = form_data.username.lower()
     agora = time.time()
     tentativas = FAILED_ATTEMPTS.get(username, [])
     tentativas = [t for t in tentativas if agora - t < WINDOW_SECONDS]
-    if len(tentativas) >= MAX_ATTEMPTS:
+    escalated = False
+    total_falhas = FAILED_TOTAL.get(username, 0)
+    # Se passou do threshold, aplicamos janela maior (verificamos tentativas também nessa janela maior)
+    if total_falhas >= ESCALATE_THRESHOLD:
+        tentativas_escaladas = [t for t in FAILED_ATTEMPTS.get(username, []) if agora - t < ESCALATED_WINDOW]
+        if len(tentativas_escaladas) >= MAX_ATTEMPTS:
+            escalated = True
+    if (len(tentativas) >= MAX_ATTEMPTS) or escalated:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Muitas tentativas. Tente novamente mais tarde.")
 
     user = await authenticate_user(db, username, form_data.password)
     if not user:
         tentativas.append(agora)
         FAILED_ATTEMPTS[username] = tentativas
+        FAILED_TOTAL[username] = FAILED_TOTAL.get(username, 0) + 1
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
     # reset em sucesso
     FAILED_ATTEMPTS.pop(username, None)
@@ -63,6 +77,9 @@ async def get_current_user(
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    jti = payload.get("jti")
+    if jti and jti in REVOKED_JTIS:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revogado")
     user = await db.get(UsuarioSistema, int(user_id))
     if not user or not user.ativo:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário inativo ou não encontrado")
@@ -72,6 +89,23 @@ async def get_current_user(
 @router.get("/me")
 async def read_current_user(current_user: UsuarioSistema = Depends(get_current_user)):
     return envelope_resposta(True, Usuario.model_validate(current_user).model_dump())
+
+
+@router.post("/logout")
+async def logout_atual(token: str = Depends(oauth2_scheme)):
+    """Revoga o token atual adicionando seu jti à blacklist.
+
+    Em produção, ideal persistir em armazenamento compartilhado (ex: Redis) com TTL.
+    """
+    try:
+        payload = decode_token(token)
+    except ValueError:
+        # Se já inválido, tratamos como sucesso idempotente
+        return envelope_resposta(True, {"revogado": True})
+    jti = payload.get("jti")
+    if jti:
+        REVOKED_JTIS.add(jti)
+    return envelope_resposta(True, {"revogado": True})
 
 
 async def seed_admin_user(db: AsyncSession, *, email: str, senha: str) -> bool:
