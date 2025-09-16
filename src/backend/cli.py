@@ -33,6 +33,27 @@ async def _seed_admin(email: str, senha: str) -> bool:
         return True
 
 
+async def _seed_usuario_generico(nome: str, email: str, senha: str, perfil: PerfilUsuario, ativo: bool = True) -> bool:
+    engine = create_async_engine(get_database_url(), future=True, echo=False)
+    sess_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    async with sess_factory() as session:
+        from sqlalchemy import select
+        res = await session.execute(select(UsuarioSistema).where(UsuarioSistema.email == email))
+        existente = res.scalar_one_or_none()
+        if existente:
+            return False
+        novo = UsuarioSistema(
+            nome=nome,
+            email=email,
+            senha_hash=hash_password(senha),
+            perfil=perfil,
+            ativo=ativo,
+        )
+        session.add(novo)
+        await session.commit()
+        return True
+
+
 @app_cli.command("seed-admin")
 def seed_admin(
     email: Optional[str] = typer.Option(None, help="Email do admin"),
@@ -58,6 +79,19 @@ def auto_seed():
     senha = s.seed_admin_senha or "admin123"
     criado = asyncio.run(_seed_admin(email, senha))
     typer.echo(("Admin criado" if criado else "Admin já existia") + f" ({email})")
+
+
+@app_cli.command("seed-usuario")
+def seed_usuario(
+    nome: str = typer.Option(..., help="Nome do usuário"),
+    email: str = typer.Option(..., help="Email do usuário"),
+    senha: str = typer.Option(..., help="Senha do usuário"),
+    perfil: PerfilUsuario = typer.Option(PerfilUsuario.recepcionista, help="Perfil do usuário"),
+    ativo: bool = typer.Option(True, help="Usuário ativo"),
+):
+    """Cria um usuário com perfil especificado (ex.: recepcionista, aluno)."""
+    criado = asyncio.run(_seed_usuario_generico(nome, email, senha, perfil, ativo))
+    typer.echo(("Usuário criado" if criado else "Usuário já existia") + f" ({email}, perfil={perfil.name})")
 
 
 if __name__ == "__main__":  # pragma: no cover

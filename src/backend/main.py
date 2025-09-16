@@ -8,6 +8,7 @@ import time
 
 from .database import engine, Base  # noqa: F401 (Base importada caso seja necessário introspecção de metadados em runtime)
 from .routers import auth, usuarios, pacientes
+from .routers import fila as fila_router
 from .core.resposta import envelope_resposta
 import logging, json, uuid
 
@@ -71,6 +72,7 @@ app.add_middleware(MiddlewareTempo)
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 app.include_router(pacientes.router)
+app.include_router(fila_router.router)
 
 
 # Substituir eventos deprecated por lifespan se necessitarmos lógica futura.

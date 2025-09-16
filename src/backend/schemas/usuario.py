@@ -22,6 +22,12 @@ class UsuarioCreate(UsuarioBase):
     senha: str
 
 
+class UsuarioUpdate(BaseModel):
+    nome: str | None = None
+    email: EmailStr | None = None
+    perfil: PerfilUsuario | None = None
+
+
 class Usuario(UsuarioBase):
     id: int
     ativo: bool

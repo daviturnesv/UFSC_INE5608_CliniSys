@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Paciente
@@ -54,7 +55,11 @@ async def search_pacientes(
 async def create_paciente(db: AsyncSession, **data) -> Paciente:
     paciente = Paciente(**data)
     db.add(paciente)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise ValueError("CPF já cadastrado")
     await db.refresh(paciente)
     return paciente
 
@@ -62,7 +67,11 @@ async def create_paciente(db: AsyncSession, **data) -> Paciente:
 async def update_paciente(db: AsyncSession, paciente: Paciente, **data) -> Paciente:
     for k, v in data.items():
         setattr(paciente, k, v)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise ValueError("CPF já cadastrado")
     await db.refresh(paciente)
     return paciente
 

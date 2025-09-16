@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..schemas import UsuarioCreate, Usuario
+from ..schemas import UsuarioCreate, Usuario, UsuarioUpdate
 from ..models import UsuarioSistema, PerfilUsuario  # usar enum do modelo para tipagem
 from ..crud.usuario import create_user, get_user_by_email, validate_password_policy
 from sqlalchemy import select, update, func
@@ -13,6 +13,7 @@ from ..core.resposta import envelope_resposta
 from .auth import get_current_user
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
+MSG_USUARIO_NAO_ENCONTRADO = "Usuário não encontrado"
 
 
 def require_admin(user: UsuarioSistema) -> None:
@@ -74,6 +75,67 @@ async def listar_usuarios(
     ], meta=meta)
 
 
+@router.get("/{usuario_id}")
+async def obter_usuario(
+    usuario_id: int = Path(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    require_admin(current_user)
+    u = await db.get(UsuarioSistema, usuario_id)
+    if not u:
+        raise HTTPException(status_code=404, detail=MSG_USUARIO_NAO_ENCONTRADO)
+    return envelope_resposta(True, Usuario.model_validate(u).model_dump())
+
+
+@router.put("/{usuario_id}")
+async def atualizar_usuario(
+    usuario_id: int = Path(..., gt=0),
+    payload: UsuarioUpdate = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    require_admin(current_user)
+    alvo = await db.get(UsuarioSistema, usuario_id)
+    if not alvo:
+        raise HTTPException(status_code=404, detail=MSG_USUARIO_NAO_ENCONTRADO)
+    dados = payload.model_dump(exclude_unset=True)
+    # email único
+    if "email" in dados and dados["email"] != alvo.email:
+        existente = await get_user_by_email(db, dados["email"])
+        if existente:
+            raise HTTPException(status_code=400, detail="Email já cadastrado")
+    # perfil
+    if "perfil" in dados:
+        try:
+            perfil = PerfilUsuario(dados["perfil"]) if isinstance(dados["perfil"], str) else PerfilUsuario(dados["perfil"].value)
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="Perfil inválido")
+        alvo.perfil = perfil
+    if "nome" in dados:
+        alvo.nome = dados["nome"]
+    if "email" in dados:
+        alvo.email = dados["email"]
+    await db.commit()
+    await db.refresh(alvo)
+    return envelope_resposta(True, Usuario.model_validate(alvo).model_dump())
+
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_usuario(
+    usuario_id: int = Path(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    require_admin(current_user)
+    alvo = await db.get(UsuarioSistema, usuario_id)
+    if not alvo:
+        raise HTTPException(status_code=404, detail=MSG_USUARIO_NAO_ENCONTRADO)
+    await db.delete(alvo)
+    await db.commit()
+    return envelope_resposta(True, None)
+
+
 async def atualizar_status_usuario(
     usuario_id: int,
     ativo: bool,
@@ -90,7 +152,7 @@ async def atualizar_status_usuario(
     res = await db.execute(stmt)
     row = res.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        raise HTTPException(status_code=404, detail=MSG_USUARIO_NAO_ENCONTRADO)
     await db.commit()
     return row[0]
 
@@ -121,7 +183,7 @@ async def alterar_senha_usuario(
     """
     alvo = await db.get(UsuarioSistema, usuario_id)
     if not alvo:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+        raise HTTPException(status_code=404, detail=MSG_USUARIO_NAO_ENCONTRADO)
 
     is_admin = current_user.perfil == PerfilUsuario.admin
     is_self = current_user.id == usuario_id

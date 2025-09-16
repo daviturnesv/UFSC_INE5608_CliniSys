@@ -14,21 +14,27 @@ class Base(DeclarativeBase):
 
 
 def get_database_url() -> str:
-    """Build DB URL from environment variables.
+    """Resolve a URL de banco de dados.
 
-    Expected env vars:
-      - DB_USER
-      - DB_PASSWORD
-      - DB_HOST (default: localhost)
-      - DB_PORT (default: 5432)
-      - DB_NAME
-    Falls back to a local dev PostgreSQL URL if not all provided.
+    Ordem de precedência:
+    1) DATABASE_URL (env padrão)
+    2) APP_DATABASE_URL (env com prefixo do projeto)
+    3) Monta a partir de Settings (.env via pydantic): APP_DB_*
     """
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD", "postgres")
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    name = os.getenv("DB_NAME", "clinisysschool")
+    # 1) Override direto via env
+    direct = os.getenv("DATABASE_URL") or os.getenv("APP_DATABASE_URL")
+    if direct:
+        return direct
+
+    # 2) Monta a partir das variáveis carregadas por Settings
+    from .core.config import get_settings  # lazy import para evitar ciclos
+
+    s = get_settings()
+    user = str(getattr(s, "db_user", "postgres"))
+    password = str(getattr(s, "db_password", "postgres"))
+    host = str(getattr(s, "db_host", "localhost"))
+    port = str(getattr(s, "db_port", 5432))
+    name = str(getattr(s, "db_name", "clinisysschool"))
     return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}"
 
 
