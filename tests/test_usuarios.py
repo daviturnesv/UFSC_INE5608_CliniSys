@@ -50,3 +50,42 @@ async def test_ativar_desativar_usuario(cliente: AsyncClient, usuario_admin):
     # ativar
     atv = await cliente.patch(f"/usuarios/{usuario_id}/ativar", headers=headers)
     assert atv.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_alterar_senha_usuario_fluxos(cliente: AsyncClient, usuario_admin):
+    # login admin
+    resp_login = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
+    token = resp_login.json().get("data", {}).get("access_token") if "data" in resp_login.json() else resp_login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # criar usuario alvo
+    novo = await cliente.post(
+        "/usuarios/",
+        json={"nome": "TrocaSenha", "email": "troca@exemplo.com", "perfil": "aluno", "senha": "Senha123"},
+        headers=headers,
+    )
+    assert novo.status_code == 201, novo.text
+    user_id = novo.json()["data"]["id"]
+
+    # admin altera senha sem senha_atual
+    troca_admin = await cliente.patch(f"/usuarios/{user_id}/senha", json={"nova_senha": "NovaSenha123"}, headers=headers)
+    assert troca_admin.status_code == 200, troca_admin.text
+
+    # login como usuario com nova senha
+    login_user = await cliente.post("/auth/token", data={"username": "troca@exemplo.com", "password": "NovaSenha123"})
+    assert login_user.status_code == 200, login_user.text
+    user_token = login_user.json().get("data", {}).get("access_token") if "data" in login_user.json() else login_user.json()["access_token"]
+    user_headers = {"Authorization": f"Bearer {user_token}"}
+
+    # usuário troca a própria senha (precisa senha_atual)
+    troca_self_fail = await cliente.patch(f"/usuarios/{user_id}/senha", json={"nova_senha": "Outra1234"}, headers=user_headers)
+    assert troca_self_fail.status_code == 400
+    troca_self_ok = await cliente.patch(
+        f"/usuarios/{user_id}/senha", json={"senha_atual": "NovaSenha123", "nova_senha": "Outra1234"}, headers=user_headers
+    )
+    assert troca_self_ok.status_code == 200
+
+    # login com a nova
+    login_user2 = await cliente.post("/auth/token", data={"username": "troca@exemplo.com", "password": "Outra1234"})
+    assert login_user2.status_code == 200

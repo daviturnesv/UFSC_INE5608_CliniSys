@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -12,6 +12,7 @@ from ..crud.paciente import (
     get_paciente_by_cpf,
     update_paciente,
     delete_paciente,
+    search_pacientes,
 )
 from .auth import get_current_user
 from ..models import UsuarioSistema
@@ -20,6 +21,20 @@ from ..core.resposta import envelope_resposta
 router = APIRouter(prefix="/pacientes", tags=["pacientes"])
 
 MSG_PACIENTE_NAO_ENCONTRADO = "Paciente não encontrado"
+
+
+@router.get("/busca")
+async def buscar_pacientes(
+    nome: str | None = Query(default=None, description="Filtro parcial por nome"),
+    cpf: str | None = Query(default=None, description="Filtro exato por CPF"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: UsuarioSistema = Depends(get_current_user),
+):
+    registros, total = await search_pacientes(db, nome=nome, cpf=cpf, skip=skip, limit=limit)
+    meta = {"total": total, "skip": skip, "limit": limit, "count": len(registros)}
+    return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta=meta)
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -35,18 +50,18 @@ async def criar_paciente(
     return envelope_resposta(True, Paciente.model_validate(paciente).model_dump())
 
 
+@router.get("/")
+async def listar_pacientes(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    registros = await list_pacientes(db, skip=skip, limit=limit)
+    return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta={"count": len(registros), "skip": skip, "limit": limit})
+
+
 @router.get("/{paciente_id}")
 async def obter_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
     paciente = await get_paciente(db, paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
     return envelope_resposta(True, Paciente.model_validate(paciente).model_dump())
-
-
-@router.get("/")
-async def listar_pacientes(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
-    registros = await list_pacientes(db, skip=skip, limit=limit)
-    return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta={"count": len(registros), "skip": skip, "limit": limit})
 
 
 @router.put("/{paciente_id}")

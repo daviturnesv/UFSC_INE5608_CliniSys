@@ -8,6 +8,17 @@ from ..core.security import hash_password, verify_password, pwd_context
 import re
 
 
+def validate_password_policy(senha: str) -> None:
+    """Valida requisitos mínimos de senha.
+
+    - mínimo 8 caracteres
+    - ao menos 1 letra e 1 dígito
+    Lança ValueError em caso de violação.
+    """
+    if not re.fullmatch(r"(?=.*[A-Za-z])(?=.*\d).{8,}", senha):
+        raise ValueError("Senha não atende aos requisitos mínimos (>=8, letra e dígito)")
+
+
 async def get_user_by_email(db: AsyncSession, email: str) -> UsuarioSistema | None:
     stmt = select(UsuarioSistema).where(UsuarioSistema.email == email)
     res = await db.execute(stmt)
@@ -15,9 +26,8 @@ async def get_user_by_email(db: AsyncSession, email: str) -> UsuarioSistema | No
 
 
 async def create_user(db: AsyncSession, *, nome: str, email: str, senha: str, perfil: PerfilUsuario) -> UsuarioSistema:
-    # Política simples de senha: mínimo 8 chars, pelo menos uma letra e um dígito
-    if not re.fullmatch(r"(?=.*[A-Za-z])(?=.*\d).{8,}", senha):
-        raise ValueError("Senha não atende aos requisitos mínimos (>=8, letra e dígito)")
+    # Política de senha reutilizável
+    validate_password_policy(senha)
     user = UsuarioSistema(
         nome=nome,
         email=email,

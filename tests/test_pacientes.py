@@ -46,3 +46,33 @@ async def test_crud_paciente_basico(cliente: AsyncClient, usuario_admin):
     # confirm deletion
     not_found = await cliente.get(f"/pacientes/{pid}", headers=headers)
     assert not_found.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_busca_pacientes_por_nome_e_cpf(cliente: AsyncClient, usuario_admin):
+    # login
+    resp_login = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})
+    token = resp_login.json()["data"]["access_token"] if "data" in resp_login.json() else resp_login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # cria dois pacientes
+    dados = [
+        {"nome_completo": "Maria da Silva", "cpf": "111.222.333-44", "data_nascimento": str(date(1990, 5, 20)), "telefone": None},
+        {"nome_completo": "Mariana Souza", "cpf": "555.666.777-88", "data_nascimento": str(date(1985, 7, 15)), "telefone": None},
+    ]
+    for p in dados:
+        await cliente.post("/pacientes/", json=p, headers=headers)
+
+    # busca por nome parcial
+    resp = await cliente.get("/pacientes/busca?nome=mari", headers=headers)
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert "meta" in corpo and "total" in corpo["meta"]
+    nomes = [r["nome_completo"].lower() for r in corpo["data"]]
+    assert any("maria" in n for n in nomes) and any("mariana" in n for n in nomes)
+
+    # busca por cpf exato
+    resp2 = await cliente.get("/pacientes/busca?cpf=111.222.333-44", headers=headers)
+    assert resp2.status_code == 200
+    corpo2 = resp2.json()
+    assert len(corpo2["data"]) == 1 and corpo2["data"][0]["cpf"] == "111.222.333-44"

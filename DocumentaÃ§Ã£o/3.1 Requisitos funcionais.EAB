@@ -1,0 +1,12 @@
+<BranchVCSpec>
+	<PkgGUID>{E242EFF5-7BFD-4be2-B058-D1C0FBF57A76}</PkgGUID>
+	<XMLPath>eaD\D1C0FBF57A76.xml</XMLPath>
+	<Config>
+		<GUID>Git_CliniSys_UFSC</GUID>
+		<LocalPath>%Git_CliniSys_UFSC%</LocalPath>
+		<Type>0</Type>
+		<Provider>PushOk GITSCC</Provider>
+		<ProjName>.</ProjName>
+		<AuxProjPath/>
+	</Config>
+</BranchVCSpec>

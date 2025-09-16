@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Paciente
@@ -20,6 +20,35 @@ async def list_pacientes(db: AsyncSession, skip: int = 0, limit: int = 50) -> li
     stmt = select(Paciente).offset(skip).limit(limit)
     res = await db.execute(stmt)
     return list(res.scalars().all())
+
+
+async def search_pacientes(
+    db: AsyncSession,
+    *,
+    nome: str | None = None,
+    cpf: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[Paciente], int]:
+    """Pesquisa pacientes por nome (ilike) e/ou CPF exato, com total.
+
+    Retorna (registros, total_filtrado)
+    """
+    base = select(Paciente)
+    count = select(func.count()).select_from(Paciente)
+    filtros = []
+    if nome:
+        filtros.append(Paciente.nome_completo.ilike(f"%{nome}%"))
+    if cpf:
+        filtros.append(Paciente.cpf == cpf)
+    for f in filtros:
+        base = base.where(f)
+        count = count.where(f)
+    base = base.order_by(Paciente.id).offset(skip).limit(limit)
+    res = await db.execute(base)
+    regs = list(res.scalars().all())
+    total = (await db.execute(count)).scalar_one()
+    return regs, int(total)
 
 
 async def create_paciente(db: AsyncSession, **data) -> Paciente:
