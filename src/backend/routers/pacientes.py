@@ -15,7 +15,7 @@ from ..crud.paciente import (
     search_pacientes,
 )
 from .auth import get_current_user
-from ..models import UsuarioSistema
+from ..models import UsuarioSistema, PerfilUsuario
 from ..core.resposta import envelope_resposta
 
 router = APIRouter(prefix="/pacientes", tags=["pacientes"])
@@ -32,6 +32,7 @@ async def buscar_pacientes(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
+    # Qualquer autenticado pode buscar
     registros, total = await search_pacientes(db, nome=nome, cpf=cpf, skip=skip, limit=limit)
     meta = {"total": total, "skip": skip, "limit": limit, "count": len(registros)}
     return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta=meta)
@@ -43,6 +44,9 @@ async def criar_paciente(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
+    # Apenas recepcionista ou admin podem criar
+    if current_user.perfil not in (PerfilUsuario.recepcionista, PerfilUsuario.admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     existente = await get_paciente_by_cpf(db, payload.cpf)
     if existente:
         raise HTTPException(status_code=400, detail="CPF já cadastrado")
@@ -52,12 +56,14 @@ async def criar_paciente(
 
 @router.get("/")
 async def listar_pacientes(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    # Qualquer autenticado pode listar
     registros = await list_pacientes(db, skip=skip, limit=limit)
     return envelope_resposta(True, [Paciente.model_validate(p).model_dump() for p in registros], meta={"count": len(registros), "skip": skip, "limit": limit})
 
 
 @router.get("/{paciente_id}")
 async def obter_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    # Qualquer autenticado pode obter
     paciente = await get_paciente(db, paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
@@ -71,6 +77,9 @@ async def atualizar_paciente(
     db: AsyncSession = Depends(get_db),
     current_user: UsuarioSistema = Depends(get_current_user),
 ):
+    # Apenas recepcionista ou admin podem atualizar
+    if current_user.perfil not in (PerfilUsuario.recepcionista, PerfilUsuario.admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     paciente = await get_paciente(db, paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)
@@ -80,6 +89,9 @@ async def atualizar_paciente(
 
 @router.delete("/{paciente_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remover_paciente(paciente_id: int, db: AsyncSession = Depends(get_db), current_user: UsuarioSistema = Depends(get_current_user)):
+    # Apenas recepcionista ou admin podem remover
+    if current_user.perfil not in (PerfilUsuario.recepcionista, PerfilUsuario.admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
     paciente = await get_paciente(db, paciente_id)
     if not paciente:
         raise HTTPException(status_code=404, detail=MSG_PACIENTE_NAO_ENCONTRADO)

@@ -49,6 +49,59 @@ async def test_crud_paciente_basico(cliente: AsyncClient, usuario_admin):
 
 
 @pytest.mark.asyncio
+async def test_uc_recepcionista_pode_crud(cliente: AsyncClient, usuario_recepcionista):
+    # login recepcionista
+    login = await cliente.post("/auth/token", data={"username": usuario_recepcionista.email, "password": "recep123"})
+    token = login.json().get("data", {}).get("access_token") if "data" in login.json() else login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "nome_completo": "Paciente Recep",
+        "cpf": "000.111.222-33",
+        "data_nascimento": str(date(2001,1,1)),
+        "telefone": None,
+    }
+    criado = await cliente.post("/pacientes/", json=payload, headers=headers)
+    assert criado.status_code == 201, criado.text
+    pid = criado.json()["data"]["id"]
+
+    # update
+    up = await cliente.put(f"/pacientes/{pid}", json=payload | {"telefone": "48900001111"}, headers=headers)
+    assert up.status_code == 200
+
+    # search/list
+    busca = await cliente.get("/pacientes/busca?nome=Recep", headers=headers)
+    assert busca.status_code == 200
+    lista = await cliente.get("/pacientes/?skip=0&limit=5", headers=headers)
+    assert lista.status_code == 200
+
+    # delete
+    rem = await cliente.delete(f"/pacientes/{pid}", headers=headers)
+    assert rem.status_code in (200, 204)
+
+
+@pytest.mark.asyncio
+async def test_uc_aluno_nao_pode_modificar_pacientes(cliente: AsyncClient, usuario_aluno):
+    login = await cliente.post("/auth/token", data={"username": usuario_aluno.email, "password": "aluno123"})
+    token = login.json().get("data", {}).get("access_token") if "data" in login.json() else login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        "nome_completo": "Paciente Aluno",
+        "cpf": "999.888.777-66",
+        "data_nascimento": str(date(2002,2,2)),
+        "telefone": None,
+    }
+    # create should be forbidden
+    criado = await cliente.post("/pacientes/", json=payload, headers=headers)
+    assert criado.status_code == 403
+
+    # listing should be allowed
+    lista = await cliente.get("/pacientes/?skip=0&limit=5", headers=headers)
+    assert lista.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_busca_pacientes_por_nome_e_cpf(cliente: AsyncClient, usuario_admin):
     # login
     resp_login = await cliente.post("/auth/token", data={"username": usuario_admin.email, "password": "admin123"})

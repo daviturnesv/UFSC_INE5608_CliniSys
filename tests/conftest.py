@@ -94,3 +94,45 @@ async def usuario_admin(db_session: AsyncSession):
         await db_session.commit()
         await db_session.refresh(admin)
     return admin
+
+
+@pytest_asyncio.fixture
+async def usuario_recepcionista(db_session: AsyncSession):
+    from sqlalchemy import select
+
+    stmt = select(UsuarioSistema).where(UsuarioSistema.email == "recep@exemplo.com")
+    res = await db_session.execute(stmt)
+    recep = res.scalar_one_or_none()
+    if not recep:
+        recep = UsuarioSistema(
+            nome="Recepcionista",
+            email="recep@exemplo.com",
+            senha_hash=hash_password("recep123"),
+            perfil=PerfilUsuario.recepcionista,
+            ativo=True,
+        )
+        db_session.add(recep)
+        await db_session.commit()
+        await db_session.refresh(recep)
+    return recep
+
+
+@pytest_asyncio.fixture
+async def usuario_aluno(db_session: AsyncSession):
+    from sqlalchemy import select
+
+    stmt = select(UsuarioSistema).where(UsuarioSistema.email == "aluno@exemplo.com")
+    res = await db_session.execute(stmt)
+    user = res.scalar_one_or_none()
+    if not user:
+        user = UsuarioSistema(
+            nome="Aluno",
+            email="aluno@exemplo.com",
+            senha_hash=hash_password("aluno123"),
+            perfil=PerfilUsuario.aluno,
+            ativo=True,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+    return user
