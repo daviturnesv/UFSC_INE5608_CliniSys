@@ -42,6 +42,7 @@ async def main() -> None:
                 "email": unique_email,
                 "perfil": "admin",
                 "senha": "Senha1234",
+                "cpf": str(int(time.time()))[-11:].rjust(11, "0"),
             }
             create_resp = await client.post(USUARIOS_PATH, json=create_json)
             if create_resp.is_error:

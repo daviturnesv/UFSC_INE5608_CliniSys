@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./clinisys_uc_admin.db"
     admin_email: str = "admin@exemplo.com"
     admin_password: str = "admin123"
+    admin_cpf: str = "00000000000"
 
     class Config:
         env_prefix = "APP_"

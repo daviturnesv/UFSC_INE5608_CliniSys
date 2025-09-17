@@ -24,13 +24,21 @@ async def criar_usuario(
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        # validações básicas
+        if not payload.cpf or not payload.cpf.isdigit() or len(payload.cpf) != 11:
+            raise HTTPException(status_code=400, detail="CPF é obrigatório e deve conter 11 dígitos numéricos")
         existente = await get_user_by_email(db, payload.email)
         if existente:
             raise HTTPException(status_code=400, detail="Email já cadastrado")
-        if payload.cpf:
-            res_cpf = await db.execute(select(UsuarioSistema).where(UsuarioSistema.cpf == payload.cpf))
-            if res_cpf.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail="CPF já cadastrado")
+        res_cpf = await db.execute(select(UsuarioSistema).where(UsuarioSistema.cpf == payload.cpf))
+        if res_cpf.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="CPF já cadastrado")
+
+        # perfis aluno/professor precisam de clinica_id
+        if payload.perfil in (PerfilSchema.aluno, PerfilSchema.professor):
+            clinica_id = (payload.dados_perfil or {}).get("clinica_id")
+            if clinica_id is None or not isinstance(clinica_id, int):
+                raise HTTPException(status_code=400, detail="clinica_id é obrigatório para alunos e professores")
 
         user = await create_user(
             db,
@@ -140,6 +148,8 @@ async def _atualizar_usuario_impl(db: AsyncSession, usuario_id: int, payload: Us
             raise HTTPException(status_code=400, detail="Email já cadastrado")
     # nota: simples checagem de cpf duplicado (se houver outro usuário com mesmo cpf)
     if novo_cpf and novo_cpf != (alvo.cpf or None):
+        if not novo_cpf.isdigit() or len(novo_cpf) != 11:
+            raise HTTPException(status_code=400, detail="CPF deve conter 11 dígitos numéricos")
         res = await db.execute(select(UsuarioSistema).where(UsuarioSistema.cpf == novo_cpf, UsuarioSistema.id != alvo.id))
         if res.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="CPF já cadastrado")

@@ -16,7 +16,7 @@ class UsuarioBase(BaseModel):
     nome: str
     email: EmailStr
     perfil: PerfilUsuario
-    cpf: str | None = None
+    cpf: str
 
 
 class UsuarioCreate(UsuarioBase):

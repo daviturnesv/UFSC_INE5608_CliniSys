@@ -42,6 +42,8 @@ async def create_user(db: AsyncSession, *, nome: str, email: str, senha: str, pe
     # cria registro de perfil específico (1:1) conforme o papel
     dados_perfil = dados_perfil or {}
     if perfil == PerfilUsuario.professor:
+        if dados_perfil.get("clinica_id") is None:
+            raise ValueError("clinica_id é obrigatório para professor")
         db.add(PerfilProfessor(
             user_id=user.id,
             especialidade=dados_perfil.get("especialidade"),
@@ -50,6 +52,8 @@ async def create_user(db: AsyncSession, *, nome: str, email: str, senha: str, pe
     elif perfil == PerfilUsuario.recepcionista:
         db.add(PerfilRecepcionista(user_id=user.id, telefone=dados_perfil.get("telefone")))
     elif perfil == PerfilUsuario.aluno:
+        if dados_perfil.get("clinica_id") is None:
+            raise ValueError("clinica_id é obrigatório para aluno")
         db.add(PerfilAluno(
             user_id=user.id,
             matricula=dados_perfil.get("matricula"),

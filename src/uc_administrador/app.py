@@ -78,6 +78,8 @@ async def lifespan(app: FastAPI):
                     email=settings.admin_email,
                     senha=settings.admin_password,
                     perfil=PerfilUsuario.admin,
+                    dados_perfil=None,
+                    cpf=settings.admin_cpf,
                 )
     yield
 
