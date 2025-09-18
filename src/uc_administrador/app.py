@@ -8,6 +8,9 @@ from .core.config import settings
 from .controllers import usuarios_controller, paciente_controller, auth_controller
 
 
+API_PREFIX = "/uc-admin"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # migrações leves e triggers apenas para SQLite
@@ -144,7 +147,7 @@ async def lifespan(app: FastAPI):
                 """
             )
     else:
-        # Em outros dialetos (ex.: PostgreSQL), apenas garanta create_all na primeira carga
+        # Em outros dialetos, apenas garante create_all na primeira carga
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
     # cria admin se não existir
@@ -179,8 +182,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan, openapi_url="/uc-admin/openapi.json", docs_url="/uc-admin/docs")
+app = FastAPI(title=settings.app_name, lifespan=lifespan, openapi_url=f"{API_PREFIX}/openapi.json", docs_url=f"{API_PREFIX}/docs")
 
-app.include_router(auth_controller.router, prefix="/uc-admin")
-app.include_router(usuarios_controller.router, prefix="/uc-admin")
-app.include_router(paciente_controller.router, prefix="/uc-admin")
+app.include_router(auth_controller.router, prefix=API_PREFIX)
+app.include_router(usuarios_controller.router, prefix=API_PREFIX)
+app.include_router(paciente_controller.router, prefix=API_PREFIX)
