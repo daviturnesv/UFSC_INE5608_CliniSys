@@ -1,0 +1,13 @@
+Arquivos essenciais para a entrega (UC Admin Desktop):
+
+- src/client_desktop/__main__.py
+- src/client_desktop/uc_admin_users_tk.py
+- src/uc_administrador/core/config.py
+- src/uc_administrador/core/security.py
+- src/uc_administrador/db/database.py
+- src/uc_administrador/models/__init__.py
+- src/uc_administrador/models/usuario.py
+- src/uc_administrador/models/clinica.py
+- src/uc_administrador/services/usuario_service.py
+- entrega_uc_admin/requirements.txt (este arquivo)
+- entrega_uc_admin/README.md (este arquivo)
