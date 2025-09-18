@@ -1,4 +1,4 @@
-from .uc_admin_users_tk import main
+from .clinisys_main import main
 
 if __name__ == "__main__":
     main()

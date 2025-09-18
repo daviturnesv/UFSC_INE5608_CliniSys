@@ -1,6 +1,6 @@
 # CliniSys-Escola
 
-Sistema de Gestão para a Clínica-Escola de Odontologia da UFSC.
+Sistema de Gestão Desktop para a Clínica-Escola de Odontologia da UFSC.
 
 Projeto acadêmico desenvolvido para a disciplina **INE5608 - Análise e Projeto de Sistemas** (UFSC).
 
@@ -13,15 +13,10 @@ Projeto acadêmico desenvolvido para a disciplina **INE5608 - Análise e Projeto
 3. [Arquitetura e Stack](#arquitetura-e-stack)
 4. [Estrutura do Repositório](#estrutura-do-repositório)
 5. [Configuração e Execução](#configuração-e-execução)
-	1. [Ambiente e Dependências](#ambiente-e-dependências)
-	2. [Variáveis de Ambiente](#variáveis-de-ambiente)
-	3. [Migrações](#migrações)
-	4. [Seed (Usuário Admin)](#seed-usuário-admin)
 6. [Autenticação e Segurança](#autenticação-e-segurança)
-7. [Padrão de Resposta](#padrão-de-resposta)
-8. [Testes](#testes)
-9. [Atualizações Recentes](#atualizações-recentes)
-10. [Autores](#autores)
+7. [Testes](#testes)
+8. [Atualizações Recentes](#atualizações-recentes)
+9. [Autores](#autores)
 
 ---
 
@@ -40,349 +35,349 @@ Principais objetivos:
 
 ## Funcionalidades Implementadas
 
-Implementado no backend até o momento:
+### Sistema Desktop Completo
 
-* CRUD de usuários com perfis (admin, professor, recepcionista, aluno) e ativação/desativação.
-* Autenticação via JWT (access tokens) + refresh tokens persistentes com rotação obrigatória.
-* Logout com revogação de access token (blacklist em memória para MVP).
-* Política mínima de senha (>=8 caracteres, ao menos 1 letra e 1 dígito) e rehash automático de senhas quando parâmetros mudam.
-* CRUD básico de pacientes.
-* Envelope de resposta padronizado para endpoints.
-* Rate limiting simples no login (limite de tentativas em janela curta).
-* Campos de auditoria `created_at` / `updated_at` (atualização automática via listener).
-* Testes automatizados (pytest) cobrindo fluxos principais (auth, refresh/logout, política de senha, usuários, pacientes).
+**🔐 Autenticação e Segurança:**
+* Sistema de login com interface Tkinter
+* Autenticação via JWT (access tokens) + refresh tokens
+* Política de senha segura (>=8 caracteres, letra + dígito)
+* Logout com revogação de tokens
+* Controle de acesso por perfis (admin, professor, recepcionista, aluno)
+
+**👥 Gerenciamento de Usuários:**
+* CRUD completo de usuários (criar, listar, editar, desativar)
+* Interface gráfica para administração de usuários
+* Perfis diferenciados com permissões específicas
+* Ativação/desativação de contas
+
+**👨‍⚕️ Gerenciamento de Pacientes:**
+* CRUD completo de pacientes com interface Tkinter
+* Busca avançada por nome e CPF
+* Validação de dados (CPF único, campos obrigatórios)
+* Controle de status de atendimento
+
+**📊 Sistema de Banco de Dados:**
+* SQLite integrado para persistência
+* Migrações automáticas com Alembic
+* Campos de auditoria (created_at/updated_at)
+* Integridade referencial
 
 ---
 
 ## Arquitetura e Stack
 
-Arquitetura **cliente-servidor**: backend (FastAPI) exposto via HTTP (JSON). Clientes Desktop/Mobile (em desenvolvimento) consumirão a API. PostgreSQL como banco principal (SQLite em testes).
+**Aplicação Desktop 100% Local** com arquitetura MVC moderna e interface nativa Python.
 
 | Componente | Tecnologia | Justificativa |
 |-----------|------------|---------------|
-| Backend (API) | FastAPI | Alta performance, suporte assíncrono, validação e docs automáticas. |
-| Banco de Dados Central | PostgreSQL | Confiabilidade e robustez para dados clínicos. |
-| Cliente Desktop | PySide6 | Interface nativa rica. |
-| Cliente Mobile | BeeWare | Apps nativos. |
-| Persistência Local | SQLite | Cache offline leve. |
-| Formato de Comunicação | JSON | Interoperabilidade. |
+| **Interface** | Tkinter | Interface nativa Python, distribuição simples, sem dependências externas |
+| **Backend MVC** | SQLAlchemy + Pydantic | ORM robusto, validação de dados, separação clara de responsabilidades |
+| **Banco de Dados** | SQLite + aiosqlite | Banco embarcado, operações assíncronas, zero configuração |
+| **Autenticação** | bcrypt + python-jose | Hashing seguro de senhas e tokens JWT padrão industria |
+| **Validação** | Pydantic | Validação automática de dados, serialização type-safe |
+| **Estrutura** | MVC Pattern | Models (SQLAlchemy), Views (Pydantic), Controllers (business logic) |
+
+### Vantagens da Arquitetura Escolhida
+
+* **📦 Distribuição Simples**: Executável único, sem necessidade de servidor
+* **🔒 Segurança**: Dados ficam na máquina local, controle total do ambiente
+* **⚡ Performance**: Sem latência de rede, acesso direto ao banco
+* **🛠️ Manutenção**: Atualizações simples, sem infraestrutura complexa
+* **💻 Compatibilidade**: Funciona em Windows, Linux e macOS
 
 ---
 
 ## Estrutura do Repositório
 
 ```text
-/
-├── Documentação/
-│   ├── 1. Introdução.EAB
-│   ├── 2. Descrição geral do produto.EAB
-│   ├── 3.1 Requisitos funcionais.EAB
-│   ├── 3.2 Requisitos Não Funcionais.EAB
-│   ├── 3.3 Requisitos de domínio  Regras de negócio.EAB
-│   ├── matriz_rastreabilidade.png
-│   └── template_v2.eap
+CliniSys-Escola/
 ├── src/
-│   ├── backend/          # API FastAPI
-│   ├── client_desktop/   # Futuro cliente desktop
-│   └── client_mobile/    # Futuro cliente mobile
-├── tests/                # Testes automatizados
-└── README.md
+│   ├── backend/                 # 🏗️ Backend MVC
+│   │   ├── models/             # 📊 Modelos de dados (SQLAlchemy)
+│   │   │   ├── usuario.py      # Modelo de usuários
+│   │   │   ├── paciente.py     # Modelo de pacientes
+│   │   │   ├── clinica.py      # Modelo de clínica
+│   │   │   └── ...
+│   │   ├── views/              # 📋 Schemas de validação (Pydantic)
+│   │   │   ├── usuario_view.py # Schemas de usuários
+│   │   │   ├── paciente_view.py # Schemas de pacientes
+│   │   │   └── ...
+│   │   ├── controllers/        # 🎮 Lógica de negócio
+│   │   │   ├── usuario_service.py
+│   │   │   ├── paciente_service.py
+│   │   │   └── ...
+│   │   ├── core/              # ⚙️ Configurações e segurança
+│   │   │   ├── config.py      # Configurações da aplicação
+│   │   │   ├── security.py    # Autenticação e criptografia
+│   │   │   └── ...
+│   │   └── db/                # 💾 Conexão com banco
+│   │       └── database.py    # Setup SQLAlchemy + SQLite
+│   │
+│   └── client_desktop/         # 🖥️ Interface Desktop (Tkinter)
+│       ├── __main__.py        # 🚀 Ponto de entrada da aplicação
+│       ├── clinisys_main.py   # 📱 Aplicação principal
+│       ├── login_tk.py        # 🔐 Tela de login
+│       ├── uc_admin_users_tk.py # 👥 Gestão de usuários
+│       └── pacientes_tk.py    # 👨‍⚕️ Gestão de pacientes
+│
+├── tests/                      # 🧪 Testes automatizados
+│   ├── test_auth.py           # Testes de autenticação
+│   ├── test_usuarios.py       # Testes de usuários
+│   └── test_pacientes.py      # Testes de pacientes
+│
+├── alembic/                   # 📦 Migrações de banco
+├── Documentação/              # 📚 Documentação do projeto
+├── requirements.txt           # 📋 Dependências Python
+├── alembic.ini               # ⚙️ Configuração do Alembic
+└── README.md                 # 📖 Este arquivo
 ```
 
 ---
 
 ## Configuração e Execução
 
-### TL;DR
+### ⚡ Início Rápido
 
 ```bash
+# Clonar o repositório
 git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
 cd UFSC_INE5608_CliniSys
-python -m venv .venv && .".venv/Scripts/activate"
-pip install -r requirements.txt
-alembic upgrade head
-python -m src.backend.cli seed-admin  # cria admin (opcionalmente configure .env)
-uvicorn src.backend.main:app --reload
-```
 
-Abrir <http://127.0.0.1:8000/docs>
-
-### Ambiente e Dependências
-
-```bash
-git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
-cd UFSC_INE5608_CliniSys
-```
-
-Criar ambiente virtual (Python 3.12+):
-
-```bash
+# Criar ambiente virtual
 python -m venv .venv
-".venv/Scripts/activate"  # Windows PowerShell
+.\.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/macOS
+
+# Instalar dependências
+pip install -r requirements.txt
+
+# Configurar banco de dados
+alembic upgrade head
+
+# Criar usuário administrador
+python -m src.backend.cli seed-admin
+
+# Executar aplicação desktop
+python -m src.client_desktop
+```
+
+A aplicação será aberta com a tela de login. Use as credenciais padrão:
+- **Email:** admin@exemplo.com  
+- **Senha:** admin123
+
+### 📋 Pré-requisitos
+
+- Python 3.12 ou superior
+- Git
+- Sistema operacional: Windows, Linux ou macOS
+
+### 🛠️ Configuração Detalhada
+
+#### Ambiente e Dependências
+
+```bash
+# Clonar repositório
+git clone https://github.com/daviturnesv/UFSC_INE5608_CliniSys.git
+cd UFSC_INE5608_CliniSys
+
+# Criar ambiente virtual (Python 3.12+)
+python -m venv .venv
+
+# Ativar ambiente virtual
+# Windows PowerShell:
+.\.venv\Scripts\activate
+# Windows CMD:
+.venv\Scripts\activate.bat
+# Linux/macOS:
+source .venv/bin/activate
+
+# Instalar dependências
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Variáveis de Ambiente
+#### 📊 Configuração do Banco de Dados
 
-Criar um arquivo `.env` na raiz (exemplo):
-
-```env
-APP_DB_USER=postgres
-APP_DB_PASSWORD=postgres
-APP_DB_HOST=localhost
-APP_DB_PORT=5432
-APP_DB_NAME=clinisysschool
-APP_SECRET_KEY=trocar_esta_chave
-APP_SEED_CRIAR=false
-APP_SEED_ADMIN_EMAIL=
-APP_SEED_ADMIN_SENHA=
-```
-
-Observações:
-
-* APP_SECRET_KEY: definir valor forte/aleatório (não usar default).
-* APP_SEED_*: apenas para criação inicial de administrador.
-
-### Migrações
-
-Banco deve existir previamente (PostgreSQL) ou usar SQLite para experimentação.
+O CliniSys usa SQLite como banco de dados padrão - **não requer configuração adicional**.
 
 ```bash
+# Aplicar migrações (cria o banco automaticamente)
 alembic upgrade head
 ```
 
-Gerar nova revisão ao alterar modelos:
+#### 🔑 Configuração de Usuário Administrador
 
 ```bash
-alembic revision --autogenerate -m "descricao"
-alembic upgrade head
-```
-
-Rodar a API:
-
-```bash
-uvicorn src.backend.main:app --reload
-```
-
-Abrir: <http://127.0.0.1:8000/docs>
-
-### Seed (Usuário Admin)
-
-CLI para criação idempotente do administrador inicial.
-
-Opcional no `.env`:
-
-```env
-APP_SEED_CRIAR=true                # se true permite e autoriza auto-seed
-APP_SEED_ADMIN_EMAIL=admin@exemplo.com
-APP_SEED_ADMIN_SENHA=admin123
-```
-
-Comandos principais:
-
-```bash
-python -m src.backend.cli --help
-```
-
-Criar (ou garantir) admin com parâmetros explícitos:
-
-```bash
-python -m src.backend.cli seed-admin --email meuadmin@dominio.com --senha MinhaSenhaSegura
-```
-
-Usar valores do `.env`:
-
-```bash
+# Criar administrador com credenciais padrão
 python -m src.backend.cli seed-admin
+
+# Ou criar com credenciais personalizadas
+python -m src.backend.cli seed-admin --email seu@email.com --senha SuaSenhaSegura
 ```
 
-Auto-seed (respeita `APP_SEED_CRIAR`):
+#### ▶️ Executar a Aplicação
 
 ```bash
+# Iniciar aplicação desktop
+python -m src.client_desktop
+```
+
+A interface gráfica será aberta automaticamente.
+
+### 🔧 Comandos de Administração
+
+#### Gerenciamento de Usuários Admin
+
+```bash
+# Visualizar ajuda
+python -m src.backend.cli --help
+
+# Criar administrador (idempotente)
+python -m src.backend.cli seed-admin --email admin@exemplo.com --senha admin123
+
+# Usar configurações do ambiente
+python -m src.backend.cli seed-admin
+
+# Auto-seed (respeita configurações)
 python -m src.backend.cli auto-seed
 ```
 
-Saídas possíveis:
+#### Migrações do Banco
 
-```text
-Admin criado (admin@exemplo.com)
+```bash
+# Aplicar todas as migrações pendentes
+alembic upgrade head
+
+# Gerar nova migração após alterar models
+alembic revision --autogenerate -m "descrição da mudança"
+
+# Aplicar migração específica
+alembic upgrade <revision_id>
+
+# Visualizar histórico
+alembic history
 ```
 
-ou
-
-```text
-Admin já existia (admin@exemplo.com)
-```
-
-Fluxo inicial resumido:
-
-1. Ajustar `.env`.
-2. `alembic upgrade head`.
-3. `python -m src.backend.cli seed-admin`.
-4. `uvicorn src.backend.main:app --reload`.
-5. Login em `/auth/token`.
+Saídas possíveis do seed-admin:
+- `Admin criado (admin@exemplo.com)`
+- `Admin já existia (admin@exemplo.com)`
 
 ---
 
 ## Autenticação e Segurança
 
-### Login
+### 🔐 Sistema de Login Desktop
 
-Endpoint de login:
+O CliniSys utiliza autenticação local com interface gráfica Tkinter:
 
-`POST /auth/token` (form-urlencoded)
+**Credenciais Padrão:**
+* **Email:** admin@exemplo.com
+* **Senha:** admin123
 
-Campos:
+### 🛡️ Recursos de Segurança
 
-| campo | valor |
-|-------|-------|
-| username | email do usuário |
-| password | senha |
+**Autenticação JWT:**
+* Tokens JWT para sessões seguras
+* Refresh tokens com rotação automática
+* Logout com revogação de tokens
 
-Resposta (envelopada):
+**Política de Senhas:**
+* Mínimo 8 caracteres
+* Pelo menos 1 letra e 1 dígito
+* Hashing bcrypt para armazenamento
 
-```json
-{
-	"success": true,
-	"data": {
-		"access_token": "<JWT>",
-		"token_type": "bearer"
-	},
-	"error": null,
-	"meta": {
-		"request_id": "...",
-		"duration_ms": 7
-	}
-}
-```
+**Controle de Acesso:**
+* Perfis de usuário (admin, professor, recepcionista, aluno)
+* Permissões baseadas em perfil
+* Ativação/desativação de contas
 
-Uso em chamadas subsequentes:
+### 🔑 Gerenciamento de Usuários
 
-Header: `Authorization: Bearer <JWT>`
-
-Validade padrão: 60 minutos (configurável em `access_token_expire_minutes`).
-
-Exemplo curl:
-
-```bash
-curl -X POST -d "username=admin@exemplo.com&password=admin123" http://127.0.0.1:8000/auth/token
-```
-
-Depois:
-
-```bash
-curl -H "Authorization: Bearer <JWT>" http://127.0.0.1:8000/auth/me
-```
-
-### Refresh Tokens
-
-Fluxo:
-
-1. `POST /auth/token` retorna também `refresh_token`.
-2. Cliente armazena o valor de forma segura.
-3. `POST /auth/refresh` com `{ "refresh_token": "..." }` quando o access expira.
-4. API valida, revoga o usado e retorna novo par (rotação obrigatória).
-5. Reuso de token antigo resulta em `401`.
-
-Armazenamento: apenas hash (bcrypt) + expiração configurável (`refresh_token_expire_minutes`).
-
-### Logout
-
-`POST /auth/logout` revoga o access token atual (blacklist em memória no MVP).
-
-### Política de Senha
-
-Requisitos mínimos:
-
-* >= 8 caracteres
-* Pelo menos uma letra
-* Pelo menos um dígito
-
-Violação: HTTP 400.
-
-### Rate Limiting (Login)
-
-Limite de tentativas inválidas em janela curta com resposta 429 em abuso.
-
-### Campos de Auditoria
-
-`created_at` e `updated_at` mantidos automaticamente (listener na aplicação).
-
----
-
-## Padrão de Resposta
-
-Formato unificado (quando aplicado):
-
-```json
-{
-	"success": true,
-	"data": {"exemplo": 123},
-	"error": null,
-	"meta": {"request_id": "abc123", "duration_ms": 12}
-}
-```
-
-Erro (exemplo):
-
-```json
-{
-	"success": false,
-	"data": null,
-	"error": {"message": "Credenciais inválidas"},
-	"meta": {"request_id": "def456"}
-}
-```
+A aplicação permite:
+* Criar novos usuários com diferentes perfis
+* Editar informações de usuários existentes
+* Ativar/desativar contas
+* Redefinir senhas (apenas administradores)
 
 ---
 
 ## Testes
 
-Executar todos:
+### 🧪 Executar Testes Automatizados
+
 ```bash
+# Executar todos os testes
 pytest -q
-```
 
-Rodar arquivo específico:
-
-```bash
+# Executar arquivo específico
 pytest tests/test_auth.py -q
-```
 
-Rodar teste por nome (substring):
-
-```bash
+# Executar teste por nome (substring)
 pytest -k login -q
+
+# Executar com cobertura
+pytest --cov=src tests/
 ```
+
+### 📊 Cobertura de Testes
+
+Os testes cobrem:
+* Autenticação e autorização
+* CRUD de usuários
+* CRUD de pacientes
+* Validação de dados
+* Segurança (senhas, tokens)
+
+### 🔍 Histórico de Versões
+
+**v1.0** - Sistema web com FastAPI
+**v2.0** - Migração completa para desktop com Tkinter
 
 ---
 
-## Nota de Segurança
+## 🔐 Segurança e Boas Práticas
 
-Gerar uma SECRET forte:
+### Recomendações Importantes:
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(64))"
-```
+* **Altere as credenciais padrão** imediatamente após a primeira execução
+* **Use senhas fortes** (mínimo 8 caracteres, letras + números)
+* **Mantenha backups regulares** do banco de dados SQLite
+* **Atualize regularmente** as dependências Python
+* **Execute testes** antes de fazer alterações no código
 
-Recomendações básicas:
+### Localização dos Dados:
 
-* Não versionar `.env`.
-* Substituir credenciais padrão imediatamente.
-* Rotacionar a chave JWT em caso de suspeita de comprometimento.
+* **Banco de dados:** `clinisys.db` (criado automaticamente)
+* **Logs:** Console da aplicação
+* **Configurações:** Arquivo de configuração interno
 
 ---
 
 ## Atualizações Recentes
 
-* Padronização do envelope `{success, data, error, meta}`.
-* Campos de auditoria `created_at` / `updated_at` (listener aplicativo).
-* Rate limiting simples no login.
-* Logout com revogação de token (blacklist em memória).
-* Refresh tokens persistentes com rotação obrigatória.
-* Política mínima de senha e rehash automático.
-* Testes cobrindo autenticação, refresh/logout, política de senha, usuários e pacientes.
+### 🚀 v2.0 - Migração para Desktop (Setembro 2024)
+
+**Principais Mudanças:**
+* **Conversão completa para aplicação desktop** com interface Tkinter
+* **Remoção do backend web** (FastAPI) - agora 100% local
+* **Implementação da arquitetura MVC** com separação clara de responsabilidades
+* **Interface gráfica completa** para login, usuários e pacientes
+* **Banco SQLite integrado** - sem necessidade de configuração externa
+
+**Melhorias Implementadas:**
+* Sistema de login gráfico com autenticação JWT
+* CRUD completo de usuários com interface visual
+* CRUD completo de pacientes com validação avançada
+* Busca inteligente por nome e CPF
+* Controle de perfis e permissões
+* Validação robusta de dados com Pydantic
+* Testes automatizados mantidos e atualizados
+
+**Benefícios da Nova Arquitetura:**
+* 📦 **Distribuição simples** - executável único
+* 🔒 **Maior segurança** - dados ficam localmente
+* ⚡ **Performance superior** - sem latência de rede
+* 🛠️ **Manutenção facilitada** - sem infraestrutura complexa
 
 ---
 

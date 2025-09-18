@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Integer, Enum, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..database import Base
+from ..db.database import Base
 from .paciente import Paciente
 
 

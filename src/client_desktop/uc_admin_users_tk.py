@@ -5,22 +5,22 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Optional
 
-from src.uc_administrador.db.database import AsyncSessionLocal, engine, Base
-from src.uc_administrador.models.usuario import (
+from src.backend.db.database import AsyncSessionLocal, engine, Base
+from src.backend.models.usuario import (
     UsuarioSistema,
     PerfilUsuario,
     PerfilProfessor,
     PerfilRecepcionista,
     PerfilAluno,
 )
-from src.uc_administrador.models.clinica import Clinica
-from src.uc_administrador.services.usuario_service import (
+from src.backend.models.clinica import Clinica
+from src.backend.controllers.usuario_service import (
     create_user as svc_create_user,
     get_user_by_email as svc_get_user_by_email,
     get_profile_data as svc_get_profile_data,
     validate_password_policy,
 )
-from src.uc_administrador.core.security import hash_password
+from src.backend.core.security import hash_password
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
@@ -87,7 +87,7 @@ async def init_db_and_seed() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     # seed admin mínimo (não sobrescreve existente)
-    from src.uc_administrador.core.config import settings
+    from src.backend.core.config import settings
     async with AsyncSessionLocal() as session:
         existing = await svc_get_user_by_email(session, settings.admin_email)
         if not existing:
@@ -122,12 +122,42 @@ async def list_users() -> list[dict]:
                 "perfil": u.perfil.value,
                 "cpf": u.cpf,
                 "ativo": u.ativo,
+                "clinica_id": None,  # Será preenchido abaixo se aplicável
             }
+            
+            # Buscar clinica_id dos perfis específicos
             pd = await svc_get_profile_data(session, u)
+            if pd and hasattr(pd, 'clinica_id'):
+                d["clinica_id"] = pd.clinica_id
+            
             if pd:
                 d["perfil_dados"] = pd
             items.append(d)
         return items
+
+
+async def get_user_detail(user_id: int) -> dict:
+    """Busca detalhes completos de um usuário específico"""
+    async with AsyncSessionLocal() as session:
+        user = await session.get(UsuarioSistema, user_id)
+        if not user:
+            raise ValueError("Usuário não encontrado")
+        
+        clinica_id = None
+        # Buscar clinica_id dos perfis específicos
+        pd = await svc_get_profile_data(session, user)
+        if pd and hasattr(pd, 'clinica_id'):
+            clinica_id = pd.clinica_id
+        
+        return {
+            "id": user.id,
+            "nome": user.nome,
+            "email": user.email,
+            "cpf": user.cpf or "",
+            "perfil": user.perfil.value,
+            "ativo": user.ativo,
+            "clinica_id": clinica_id,
+        }
 
 
 async def list_clinicas() -> list[dict]:
@@ -288,28 +318,37 @@ class CreateUserDialog(tk.Toplevel):
         self.result: Optional[dict] = None
         self._on_submit = on_submit
 
+        # Criar todos os StringVar primeiro
+        self.var_nome = tk.StringVar(self)
+        self.var_cpf = tk.StringVar(self)
+        self.var_email = tk.StringVar(self)
+        self.var_perfil = tk.StringVar(self, value="admin")
+        self.var_senha = tk.StringVar(self)
+        self.var_confirma = tk.StringVar(self)
+        self.var_clinica = tk.StringVar(self)
+
         row = 0
         ttk.Label(self, text="Nome Completo").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_nome = tk.StringVar()
-        ttk.Entry(self, textvariable=self.var_nome, width=32).grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_nome = ttk.Entry(self, textvariable=self.var_nome, width=32)
+        self.entry_nome.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         row += 1
 
         ttk.Label(self, text="CPF").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_cpf = tk.StringVar()
-        ttk.Entry(self, textvariable=self.var_cpf, width=32).grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_cpf = ttk.Entry(self, textvariable=self.var_cpf, width=32)
+        self.entry_cpf.grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_cpf.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         self.err_cpf = ttk.Label(self, text="", foreground="red")
         self.err_cpf.grid(row=row, column=2, sticky="w")
         row += 1
 
         ttk.Label(self, text="Email").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_email = tk.StringVar()
-        ttk.Entry(self, textvariable=self.var_email, width=32).grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_email = ttk.Entry(self, textvariable=self.var_email, width=32)
+        self.entry_email.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         self.err_email = ttk.Label(self, text="", foreground="red")
         self.err_email.grid(row=row, column=2, sticky="w")
         row += 1
 
         ttk.Label(self, text="Perfil").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_perfil = tk.StringVar(value="admin")
         self.cmb_perfil = ttk.OptionMenu(
             self,
             self.var_perfil,
@@ -327,17 +366,16 @@ class CreateUserDialog(tk.Toplevel):
         row += 1
 
         ttk.Label(self, text="Senha").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_senha = tk.StringVar()
-        ttk.Entry(self, textvariable=self.var_senha, show="*", width=32).grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_senha = ttk.Entry(self, textvariable=self.var_senha, show="*", width=32)
+        self.entry_senha.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         row += 1
 
         ttk.Label(self, text="Confirmar Senha").grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.var_confirma = tk.StringVar()
-        ttk.Entry(self, textvariable=self.var_confirma, show="*", width=32).grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.entry_confirma = ttk.Entry(self, textvariable=self.var_confirma, show="*", width=32)
+        self.entry_confirma.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         row += 1
 
         self.lbl_clin = ttk.Label(self, text="Clinica ID (Aluno/Prof)")
-        self.var_clinica = tk.StringVar()
         self.ent_clin = ttk.Entry(self, textvariable=self.var_clinica, width=32)
         self.lbl_clin.grid(row=row, column=0, sticky="e", padx=6, pady=4)
         self.ent_clin.grid(row=row, column=1, sticky="w", padx=6, pady=4)
@@ -348,8 +386,11 @@ class CreateUserDialog(tk.Toplevel):
         ttk.Button(btns, text="Cancelar", command=self.destroy).grid(row=0, column=0, padx=4)
         ttk.Button(btns, text="Salvar Usuário", command=self.on_save).grid(row=0, column=1, padx=4)
         row += 1
-        self.err_general = ttk.Label(self, text="", foreground="red")
-        self.err_general.grid(row=row, column=0, columnspan=3, sticky="w")
+
+        # Label de erro geral
+        self.err_general = ttk.Label(self, text="", foreground="red", wraplength=400)
+        self.err_general.grid(row=row, column=0, columnspan=3, sticky="w", padx=6, pady=4)
+        row += 1
 
         if clinicas and len(clinicas) == 1:
             self.var_clinica.set(str(clinicas[0]["id"]))
@@ -382,7 +423,7 @@ class CreateUserDialog(tk.Toplevel):
 
     def _collect_form_data(self) -> dict:
         clin_raw = self.var_clinica.get().strip()
-        return {
+        data = {
             "nome": self.var_nome.get().strip(),
             "cpf": self.var_cpf.get().strip(),
             "email": self.var_email.get().strip(),
@@ -391,9 +432,11 @@ class CreateUserDialog(tk.Toplevel):
             "confirma": self.var_confirma.get(),
             "clinica_id": int(clin_raw) if clin_raw else None,
         }
+        return data
 
     def _validate_form(self, data: dict) -> None:
         missing = [lbl for lbl, key in (("Nome", "nome"), ("Email", "email"), ("CPF", "cpf"), ("Senha", "senha")) if not data.get(key)]
+        
         if missing:
             raise ValueError(ERR_MISSING_PREFIX + ", ".join(missing))
         if data["senha"] != data.get("confirma", ""):
@@ -417,21 +460,28 @@ class CreateUserDialog(tk.Toplevel):
         try:
             self._clear_errors()
             data = self._collect_form_data()
+            print(f"Dados coletados: {data}")  # Debug
+            
             self._validate_form(data)
+            
             if callable(self._on_submit):
                 try:
+                    print("Chamando função de submissão...")  # Debug
                     created_obj = self._on_submit({k: v for k, v in data.items() if k != "confirma"})
                     created: Optional[dict] = created_obj if isinstance(created_obj, dict) else None
                     self.result = created or {k: v for k, v in data.items() if k != "confirma"}
+                    print(f"Usuário criado com sucesso: {self.result}")  # Debug
                     self.destroy()
                     return
                 except Exception as ex:
+                    print(f"Erro na submissão: {ex}")  # Debug
                     self._apply_error_message(str(ex))
                     return
             else:
                 self.result = {k: v for k, v in data.items() if k != "confirma"}
                 self.destroy()
         except Exception as e:
+            print(f"Erro na validação: {e}")  # Debug
             if hasattr(self, "err_general"):
                 self.err_general.config(text=str(e))
             else:
@@ -441,94 +491,288 @@ class CreateUserDialog(tk.Toplevel):
 class UsersApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("CliniSys - UC Admin (Tkinter)")
-        self.geometry("980x520")
+        self.title("CliniSys - Gerenciamento de Usuários")
+        self.geometry("800x600")
         self.resizable(True, True)
-
-        # Esquerda: listagem
-        left = ttk.Frame(self)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=8, pady=8)
-        self.listbox = tk.Listbox(left)
-        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = ttk.Scrollbar(left, orient=tk.VERTICAL, command=self.listbox.yview)
-        self.listbox.config(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.bind("<<ListboxSelect>>", self.on_select)
-
-        # Direita: formulário
-        right = ttk.Frame(self)
-        right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False, padx=8, pady=8)
-
-        row = 0
-        ttk.Label(right, text="ID").grid(row=row, column=0, sticky="e")
-        self.var_id = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_id, state="readonly", width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Nome").grid(row=row, column=0, sticky="e")
-        self.var_nome = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_nome, width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Email").grid(row=row, column=0, sticky="e")
-        self.var_email = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_email, width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="CPF").grid(row=row, column=0, sticky="e")
-        self.var_cpf = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_cpf, width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Perfil").grid(row=row, column=0, sticky="e")
-        self.var_perfil = tk.StringVar(value="admin")
-        ttk.OptionMenu(right, self.var_perfil, "admin", "admin", "professor", "aluno", "recepcionista").grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Senha (criação)").grid(row=row, column=0, sticky="e")
-        self.var_senha = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_senha, show="*", width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Clinica ID (Aluno/Prof)").grid(row=row, column=0, sticky="e")
-        self.var_clinica = tk.StringVar()
-        self.ent_clinica = ttk.Entry(right, textvariable=self.var_clinica, width=30)
-        self.ent_clinica.grid(row=row, column=1, sticky="w")
-        row += 1
-
-        ttk.Label(right, text="Nova Senha (alterar)").grid(row=row, column=0, sticky="e")
-        self.var_nova_senha = tk.StringVar()
-        ttk.Entry(right, textvariable=self.var_nova_senha, show="*", width=30).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        # Filtros (para dar propósito ao botão Listar)
-        ttk.Label(right, text="Filtro Perfil").grid(row=row, column=0, sticky="e")
-        self.var_filtro_perfil = tk.StringVar(value="todos")
-        ttk.OptionMenu(right, self.var_filtro_perfil, "todos", "todos", "admin", "professor", "aluno", "recepcionista").grid(row=row, column=1, sticky="w")
-        row += 1
-        self.var_filtro_ativos = tk.BooleanVar(value=True)
-        ttk.Checkbutton(right, text="Somente ativos", variable=self.var_filtro_ativos).grid(row=row, column=1, sticky="w")
-        row += 1
-
-        # Botões
-        btns = ttk.Frame(right)
-        btns.grid(row=row, column=0, columnspan=2, pady=8)
-        ttk.Button(btns, text="Aplicar Filtros", command=self.cmd_listar).grid(row=0, column=0, padx=3)
-        ttk.Button(btns, text="Novo", command=self.cmd_novo).grid(row=0, column=1, padx=3)
-        ttk.Button(btns, text="Atualizar Selecionado", command=self.cmd_atualizar).grid(row=0, column=2, padx=3)
-        ttk.Button(btns, text="Remover", command=self.cmd_remover).grid(row=0, column=3, padx=3)
-        ttk.Button(btns, text="Ativar", command=lambda: self.cmd_set_ativo(True)).grid(row=1, column=0, padx=3, pady=4)
-        ttk.Button(btns, text="Desativar", command=lambda: self.cmd_set_ativo(False)).grid(row=1, column=1, padx=3, pady=4)
-        ttk.Button(btns, text="Alterar Senha", command=self.cmd_alterar_senha).grid(row=1, column=2, padx=3, pady=4)
-
-        # react to perfil changes (enable/disable clinica input)
-        try:
-            self.var_perfil.trace_add("write", lambda *_: self._on_perfil_change())
-        except Exception:
-            pass
-
-        # Start
+        
+        # Variáveis de estado
+        self.users_data = []
+        self.selected_user = None
+        self.edit_mode = False  # Controla se está no modo de edição
+        
+        # Criar interface principal
+        self._create_main_interface()
+        
+        # Inicializar
         self.after(50, self.bootstrap)
+
+    def _create_main_interface(self):
+        """Cria a interface principal minimalista"""
+        # Container principal
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Título
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(title_frame, text="Gerenciamento de Usuários", font=("Arial", 16, "bold")).pack()
+        
+        # Botões principais
+        self.buttons_frame = ttk.Frame(main_frame)
+        self.buttons_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        self.btn_show_users = ttk.Button(self.buttons_frame, text="📋 Mostrar Lista de Usuários", 
+                                        command=self.toggle_users_list)
+        self.btn_show_users.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.btn_new_user = ttk.Button(self.buttons_frame, text="➕ Novo Usuário", 
+                                      command=self.cmd_novo)
+        self.btn_new_user.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.btn_refresh = ttk.Button(self.buttons_frame, text="🔄 Atualizar", 
+                                     command=self.cmd_listar)
+        self.btn_refresh.pack(side=tk.LEFT)
+        
+        # Container para lista de usuários (inicialmente oculto)
+        self.users_container = ttk.LabelFrame(main_frame, text="Lista de Usuários")
+        self.users_container.pack_forget()  # Inicialmente oculto
+        
+        # Frame para filtros
+        filters_frame = ttk.Frame(self.users_container)
+        filters_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        ttk.Label(filters_frame, text="Filtrar por Perfil:").pack(side=tk.LEFT)
+        self.var_filtro_perfil = tk.StringVar(value="todos")
+        self.cmb_filtro = ttk.Combobox(filters_frame, textvariable=self.var_filtro_perfil, 
+                                      values=["todos", "admin", "professor", "aluno", "recepcionista"],
+                                      state="readonly", width=15)
+        self.cmb_filtro.pack(side=tk.LEFT, padx=(5, 10))
+        self.cmb_filtro.set("todos")  # Garantir valor inicial
+        
+        self.var_filtro_ativos = tk.BooleanVar(value=True)
+        ttk.Checkbutton(filters_frame, text="Apenas ativos", 
+                       variable=self.var_filtro_ativos).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(filters_frame, text="Aplicar Filtros", 
+                  command=self.apply_filters).pack(side=tk.LEFT)
+        
+        # Lista de usuários
+        list_frame = ttk.Frame(self.users_container)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.listbox = tk.Listbox(list_frame, height=8)
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.config(yscrollcommand=scrollbar.set)
+        self.listbox.bind("<<ListboxSelect>>", self.on_select)
+        
+        # Container para detalhes do usuário (inicialmente oculto)
+        self.details_container = ttk.LabelFrame(main_frame, text="Detalhes do Usuário")
+        self.details_container.pack_forget()  # Inicialmente oculto
+        
+        # Variáveis para os campos
+        self.var_id = tk.StringVar()
+        self.var_nome = tk.StringVar()
+        self.var_email = tk.StringVar()
+        self.var_cpf = tk.StringVar()
+        self.var_perfil = tk.StringVar()
+        self.var_clinica = tk.StringVar()
+        self.var_nova_senha = tk.StringVar()
+        
+        self._create_details_form()
+        
+        # Estado da interface
+        self.users_list_visible = False
+        self.details_visible = False
+
+    def _create_details_form(self):
+        """Cria o formulário de detalhes do usuário"""
+        details_frame = ttk.Frame(self.details_container)
+        details_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Campos de informação (inicialmente read-only)
+        row = 0
+        ttk.Label(details_frame, text="ID:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_id = ttk.Entry(details_frame, textvariable=self.var_id, state="readonly", width=30)
+        self.entry_id.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="Nome:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_nome = ttk.Entry(details_frame, textvariable=self.var_nome, state="readonly", width=30)
+        self.entry_nome.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="Email:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_email = ttk.Entry(details_frame, textvariable=self.var_email, state="readonly", width=30)
+        self.entry_email.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="CPF:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_cpf = ttk.Entry(details_frame, textvariable=self.var_cpf, state="readonly", width=30)
+        self.entry_cpf.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="Perfil:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.cmb_perfil = ttk.Combobox(details_frame, textvariable=self.var_perfil,
+                                      values=["admin", "professor", "aluno", "recepcionista"],
+                                      state="readonly", width=27)
+        self.cmb_perfil.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="Clínica ID:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_clinica = ttk.Entry(details_frame, textvariable=self.var_clinica, state="readonly", width=30)
+        self.entry_clinica.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        ttk.Label(details_frame, text="Nova Senha:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.entry_nova_senha = ttk.Entry(details_frame, textvariable=self.var_nova_senha, show="*", state="readonly", width=30)
+        self.entry_nova_senha.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
+        # Botões de ação
+        actions_frame = ttk.Frame(details_frame)
+        actions_frame.grid(row=row, column=0, columnspan=2, pady=20)
+        
+        # Primeira linha de botões
+        row1_frame = ttk.Frame(actions_frame)
+        row1_frame.pack(pady=(0, 5))
+        
+        self.btn_editar = ttk.Button(row1_frame, text="✏️ Editar Dados", 
+                                   command=self.toggle_edit_mode)
+        self.btn_editar.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_salvar = ttk.Button(row1_frame, text="💾 Salvar Alterações", 
+                                   command=self.cmd_atualizar, state="disabled")
+        self.btn_salvar.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_cancelar = ttk.Button(row1_frame, text="❌ Cancelar", 
+                                     command=self.cancel_edit_mode, state="disabled")
+        self.btn_cancelar.pack(side=tk.LEFT, padx=5)
+        
+        # Segunda linha de botões
+        row2_frame = ttk.Frame(actions_frame)
+        row2_frame.pack()
+        
+        ttk.Button(row2_frame, text="🔑 Alterar Senha", 
+                  command=self.cmd_alterar_senha).pack(side=tk.LEFT, padx=5)
+        ttk.Button(row2_frame, text="✅ Ativar", 
+                  command=lambda: self.cmd_set_ativo(True)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(row2_frame, text="❌ Desativar", 
+                  command=lambda: self.cmd_set_ativo(False)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(row2_frame, text="🗑️ Remover", 
+                  command=self.cmd_remover).pack(side=tk.LEFT, padx=5)
+
+    def toggle_users_list(self):
+        """Mostra/oculta a lista de usuários"""
+        if self.users_list_visible:
+            self.users_container.pack_forget()
+            self.btn_show_users.config(text="📋 Mostrar Lista de Usuários")
+            self.users_list_visible = False
+            # Ocultar detalhes também se lista for ocultada
+            if self.details_visible:
+                self.details_container.pack_forget()
+                self.details_visible = False
+        else:
+            self.users_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+            self.btn_show_users.config(text="📋 Ocultar Lista de Usuários")
+            self.users_list_visible = True
+            # Carregar usuários se ainda não carregou
+            if not self.users_data:
+                self.cmd_listar()
+
+    def toggle_edit_mode(self):
+        """Alterna entre modo visualização e edição"""
+        self.edit_mode = not self.edit_mode
+        self.update_edit_mode()
+
+    def cancel_edit_mode(self):
+        """Cancela edição e restaura valores originais"""
+        if self.selected_user:
+            self.load_user_data(self.selected_user['id'])
+        self.edit_mode = False
+        self.update_edit_mode()
+
+    def update_edit_mode(self):
+        """Atualiza o estado dos campos baseado no modo de edição"""
+        state = "normal" if self.edit_mode else "readonly"
+        
+        # Atualizar estado dos campos editáveis
+        self.entry_nome.config(state=state)
+        self.entry_email.config(state=state)
+        self.entry_cpf.config(state=state)
+        self.cmb_perfil.config(state=state if state == "normal" else "readonly")
+        self.entry_clinica.config(state=state)
+        self.entry_nova_senha.config(state=state)
+        
+        # Atualizar estado dos botões
+        if self.edit_mode:
+            self.btn_editar.config(state="disabled")
+            self.btn_salvar.config(state="normal")
+            self.btn_cancelar.config(state="normal")
+        else:
+            self.btn_editar.config(state="normal")
+            self.btn_salvar.config(state="disabled")
+            self.btn_cancelar.config(state="disabled")
+
+    def show_user_details(self):
+        """Mostra os detalhes do usuário selecionado"""
+        if not self.details_visible:
+            self.details_container.pack(fill=tk.BOTH, expand=True)
+            self.details_visible = True
+        # Sempre inicia no modo visualização
+        self.edit_mode = False
+        self.update_edit_mode()
+
+    def load_user_data(self, user_id):
+        """Carrega os dados do usuário nos campos"""
+        try:
+            user_data = self.run_async(get_user_detail(user_id))
+            if user_data:
+                # Temporariamente mudar estado para normal para permitir atualização
+                self.entry_id.config(state="normal")
+                self.entry_nome.config(state="normal")
+                self.entry_email.config(state="normal")
+                self.entry_cpf.config(state="normal")
+                self.cmb_perfil.config(state="normal")
+                self.entry_clinica.config(state="normal")
+                self.entry_nova_senha.config(state="normal")
+                
+                # Limpar campos primeiro
+                self.entry_id.delete(0, tk.END)
+                self.entry_nome.delete(0, tk.END)
+                self.entry_email.delete(0, tk.END)
+                self.entry_cpf.delete(0, tk.END)
+                self.entry_clinica.delete(0, tk.END)
+                self.entry_nova_senha.delete(0, tk.END)
+                
+                # Inserir novos valores
+                self.entry_id.insert(0, str(user_data.get('id', '')))
+                self.entry_nome.insert(0, user_data.get('nome', ''))
+                self.entry_email.insert(0, user_data.get('email', ''))
+                self.entry_cpf.insert(0, user_data.get('cpf', ''))
+                self.cmb_perfil.set(user_data.get('perfil', 'admin'))
+                self.entry_clinica.insert(0, str(user_data.get('clinica_id', '') or ''))
+                
+                # Atualizar StringVar também
+                self.var_id.set(str(user_data.get('id', '')))
+                self.var_nome.set(user_data.get('nome', ''))
+                self.var_email.set(user_data.get('email', ''))
+                self.var_cpf.set(user_data.get('cpf', ''))
+                self.var_perfil.set(user_data.get('perfil', 'admin'))
+                self.var_clinica.set(str(user_data.get('clinica_id', '') or ''))
+                self.var_nova_senha.set('')
+                
+                self.selected_user = user_data
+                self.show_user_details()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao carregar dados do usuário: {str(e)}")
+
+    def apply_filters(self):
+        """Aplica os filtros na lista de usuários"""
+        self.cmd_listar()
 
     def run_async(self, coro):
         """Run async code in a blocking way (simple MVP)."""
@@ -537,43 +781,58 @@ class UsersApp(tk.Tk):
     def bootstrap(self):
         try:
             self.run_async(init_db_and_seed())
-            self.cmd_listar()
         except Exception as e:
             messagebox.showerror("Erro ao iniciar", str(e))
 
-    def _on_perfil_change(self):
-        p = self.var_perfil.get()
-        need = p in ("aluno", "professor")
-        state = "normal" if need else "disabled"
-        try:
-            self.ent_clinica.configure(state=state)
-        except Exception:
-            pass
-
     def on_select(self, _evt=None):
+        """Quando um usuário é selecionado na lista"""
         idxs = self.listbox.curselection()
         if not idxs:
             return
+        
         data = self.listbox.get(idxs[0])
         # formato: "[id] nome (perfil) - ativo"
         try:
             uid = int(data.split("]", 1)[0].lstrip("["))
-        except Exception:
-            return
+            self.load_user_data(uid)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao selecionar usuário: {str(e)}")
 
     def cmd_listar(self):
+        """Lista os usuários aplicando filtros"""
         try:
             users = self.run_async(list_users())
-            # aplicar filtros
-            perfil = self.var_filtro_perfil.get()
-            if perfil != "todos":
+            
+            # Debug dos filtros - verificar tanto StringVar quanto widget
+            perfil_var = self.var_filtro_perfil.get()
+            perfil_widget = self.cmb_filtro.get()
+            print(f"Filtro StringVar: '{perfil_var}'")
+            print(f"Filtro Widget: '{perfil_widget}'")
+            print(f"Total usuários antes: {len(users)}")
+            
+            # Usar valor do widget se StringVar estiver vazio
+            perfil = perfil_widget if perfil_widget else perfil_var
+            print(f"Filtro usado: '{perfil}'")
+            
+            # Aplicar filtros
+            if perfil and perfil != "todos":
+                users_antes = len(users)
                 users = [u for u in users if u.get("perfil") == perfil]
+                print(f"Após filtro de perfil '{perfil}': {len(users)} usuários")
+                for u in users:
+                    print(f"  - {u['nome']} ({u['perfil']})")
+                
             if self.var_filtro_ativos.get():
                 users = [u for u in users if u.get("ativo")]
+                print(f"Após filtro de ativos: {len(users)} usuários")
+            
+            # Armazenar dados e atualizar lista
+            self.users_data = users
             self.listbox.delete(0, tk.END)
             for u in users:
                 label = f"[{u['id']}] {u['nome']} ({u['perfil']}) - {'ativo' if u['ativo'] else 'inativo'}"
                 self.listbox.insert(tk.END, label)
+                
         except Exception as e:
             messagebox.showerror("Erro ao listar", str(e))
 
@@ -612,16 +871,107 @@ class UsersApp(tk.Tk):
                 messagebox.showwarning("Seleção necessária", "Selecione um usuário da lista")
                 return
             uid = int(self.var_id.get())
+            
+            # Capturar dados originais
+            dados_originais = self.selected_user if self.selected_user else {}
+            print(f"Dados originais: {dados_originais}")
+            
+            # Debug: verificar estado dos widgets e valores
+            print(f"Estado dos Entry widgets:")
+            print(f"  entry_nome state: {self.entry_nome.cget('state')}")
+            print(f"  entry_email state: {self.entry_email.cget('state')}")
+            print(f"  entry_cpf state: {self.entry_cpf.cget('state')}")
+            print(f"  cmb_perfil state: {self.cmb_perfil.cget('state')}")
+            
             nome = self.var_nome.get().strip() or None
             email = self.var_email.get().strip() or None
             cpf = self.var_cpf.get().strip() or None
             perfil = self.var_perfil.get().strip() or None
             clin_raw = self.var_clinica.get().strip()
             clinica_id = int(clin_raw) if clin_raw else None
+            
+            # Debug: verificar valores das StringVars
+            print(f"Valores das StringVars:")
+            print(f"  var_nome: '{self.var_nome.get()}'")
+            print(f"  var_email: '{self.var_email.get()}'")
+            print(f"  var_cpf: '{self.var_cpf.get()}'")
+            print(f"  var_perfil: '{self.var_perfil.get()}'")
+            
+            # CORREÇÃO: Ler diretamente dos widgets (StringVars não sincronizam após readonly->normal)
+            try:
+                nome = self.entry_nome.get().strip() or None
+                email = self.entry_email.get().strip() or None
+                cpf = self.entry_cpf.get().strip() or None
+                perfil = self.cmb_perfil.get().strip() or None
+                clin_raw = self.var_clinica.get().strip()  # Este não tem widget direto
+                clinica_id = int(clin_raw) if clin_raw else None
+                
+                print(f"Valores corretos (lidos dos widgets):")
+                print(f"  entry_nome.get(): '{nome}'")
+                print(f"  entry_email.get(): '{email}'")
+                print(f"  entry_cpf.get(): '{cpf}'")
+                print(f"  cmb_perfil.get(): '{perfil}'")
+            except Exception as e:
+                print(f"Erro ao ler widgets diretamente: {e}")
+                return
+            
+            print(f"Atualizando usuário {uid}:")
+            print(f"  Nome: '{dados_originais.get('nome', '')}' -> '{nome}'")
+            print(f"  Email: '{dados_originais.get('email', '')}' -> '{email}'")
+            print(f"  CPF: '{dados_originais.get('cpf', '')}' -> '{cpf}'")
+            print(f"  Perfil: '{dados_originais.get('perfil', '')}' -> '{perfil}'")
+            print(f"  Clinica ID: {dados_originais.get('clinica_id', '')} -> {clinica_id}")
+            
+            # Verificar se houve mudanças
+            mudancas = []
+            if nome != dados_originais.get('nome'):
+                mudancas.append('nome')
+            if email != dados_originais.get('email'):
+                mudancas.append('email')
+            if cpf != dados_originais.get('cpf'):
+                mudancas.append('cpf')
+            if perfil != dados_originais.get('perfil'):
+                mudancas.append('perfil')
+            if clinica_id != dados_originais.get('clinica_id'):
+                mudancas.append('clinica_id')
+                
+            print(f"Campos que mudaram: {mudancas}")
+            
+            if not mudancas:
+                print("Nenhuma mudança detectada!")
+                messagebox.showinfo("Info", "Nenhuma alteração foi feita.")
+                return
+            
+            # Atualizar no banco
             self.run_async(update_user(uid, nome=nome, email=email, cpf=cpf, perfil=perfil, clinica_id=clinica_id))
+            print("Atualização no banco concluída")
+            
+            # Sair do modo edição
+            self.edit_mode = False
+            self.update_edit_mode()
+            print("Modo edição desabilitado")
+            
+            # Recarregar dados do usuário atual
+            self.load_user_data(uid)
+            print("Dados do usuário recarregados")
+            
+            # Atualizar lista para refletir mudanças
             self.cmd_listar()
-            messagebox.showinfo("Sucesso", "Usuário atualizado")
+            print("Lista atualizada")
+            
+            # Reselecionar o usuário atualizado na lista
+            for i in range(self.listbox.size()):
+                if self.listbox.get(i).startswith(f"[{uid}]"):
+                    self.listbox.selection_clear(0, tk.END)
+                    self.listbox.selection_set(i)
+                    self.listbox.see(i)
+                    print(f"Usuário {uid} reselecionado na posição {i}")
+                    break
+            
+            messagebox.showinfo("Sucesso", f"Usuário atualizado com sucesso!\nCampos alterados: {', '.join(mudancas)}")
+            
         except Exception as e:
+            print(f"Erro em cmd_atualizar: {e}")
             messagebox.showerror("Erro ao atualizar", str(e))
 
     def cmd_remover(self):

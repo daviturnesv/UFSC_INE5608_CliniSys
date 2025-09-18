@@ -1,6 +1,0 @@
-SQLAlchemy==2.0.32
-aiosqlite==0.20.0
-pydantic-settings==2.3.4
-passlib[bcrypt]==1.7.4
-bcrypt==3.2.2
-python-jose[cryptography]==3.3.0
