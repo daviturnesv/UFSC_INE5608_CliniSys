@@ -1,10 +1,25 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import warnings
+
+# Correção para problema de compatibilidade bcrypt/passlib
+try:
+    import bcrypt
+    if not hasattr(bcrypt, '__about__'):
+        # Monkey patch para versões mais novas do bcrypt
+        class AboutCompat:
+            __version__ = getattr(bcrypt, '__version__', '4.1.3')
+        bcrypt.__about__ = AboutCompat()
+except ImportError:
+    pass
 
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 
 from .config import settings
+
+# Suprimir warnings do bcrypt/passlib
+warnings.filterwarnings("ignore", category=UserWarning, module="passlib")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"

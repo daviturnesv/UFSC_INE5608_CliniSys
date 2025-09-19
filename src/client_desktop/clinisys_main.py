@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.client_desktop.uc_admin_users_tk import UsersApp, init_db_and_seed
 from src.client_desktop.pacientes_tk import PacientesTab
 from src.client_desktop.login_tk import show_login_dialog
+from src.client_desktop.clinicas_manager import show_clinicas_manager
 
 
 class CliniSysApp(tk.Tk):
@@ -55,6 +56,7 @@ class CliniSysApp(tk.Tk):
             admin_menu = tk.Menu(menubar, tearoff=0)
             menubar.add_cascade(label="Administração", menu=admin_menu)
             admin_menu.add_command(label="Gerenciar Usuários", command=self._open_users_window)
+            admin_menu.add_command(label="Gerenciar Clínicas", command=self._open_clinicas_window)
         
         # Menu Pacientes (admin e recepcionista)
         if self.current_user and self.current_user['perfil'] in ['admin', 'recepcionista']:
@@ -134,17 +136,52 @@ class CliniSysApp(tk.Tk):
         actions_frame = ttk.LabelFrame(dashboard_frame, text="Ações Rápidas")
         actions_frame.pack(fill="x", padx=20, pady=20)
         
-        # Botões de ações rápidas
+        # Botões de ações rápidas (controlados por perfil)
         buttons_frame = ttk.Frame(actions_frame)
         buttons_frame.pack(padx=10, pady=10)
         
-        ttk.Button(buttons_frame, text="Novo Paciente", command=self._new_patient, width=15).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(buttons_frame, text="Buscar Paciente", command=self._search_patient, width=15).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(buttons_frame, text="Gerenciar Usuários", command=self._open_users_window, width=15).grid(row=0, column=2, padx=5, pady=5)
+        # Criar lista de botões baseada no perfil do usuário
+        self.buttons = {}
+        available_buttons = self._get_buttons_for_profile(self.current_user['perfil'])
         
-        ttk.Button(buttons_frame, text="Fila Triagem", command=self._show_not_implemented, width=15).grid(row=1, column=0, padx=5, pady=5)
-        ttk.Button(buttons_frame, text="Agendar Consulta", command=self._show_not_implemented, width=15).grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(buttons_frame, text="Relatórios", command=self._show_not_implemented, width=15).grid(row=1, column=2, padx=5, pady=5)
+        # Organizar botões dinamicamente em grade (máximo 3 por linha)
+        max_cols = 3
+        total_buttons = len(available_buttons)
+        buttons_list = list(available_buttons.items())
+        
+        # Calcular quantas linhas completas teremos
+        full_rows = total_buttons // max_cols
+        remaining_buttons = total_buttons % max_cols
+        
+        row = 0
+        col = 0
+        
+        # Configurar as colunas do frame para centralização
+        for i in range(max_cols):
+            buttons_frame.columnconfigure(i, weight=1)
+        
+        for i, (button_key, button_config) in enumerate(buttons_list):
+            # Se estivermos na última linha e ela tem menos de 3 botões, centralizar
+            if row == full_rows and remaining_buttons > 0:
+                # Calcular offset para centralizar os botões restantes
+                offset = (max_cols - remaining_buttons) // 2
+                actual_col = col + offset
+            else:
+                actual_col = col
+            
+            button = ttk.Button(
+                buttons_frame, 
+                text=button_config['text'], 
+                command=button_config['command'], 
+                width=15
+            )
+            button.grid(row=row, column=actual_col, padx=5, pady=5)
+            self.buttons[button_key] = button
+            
+            col += 1
+            if col >= max_cols:
+                col = 0
+                row += 1
         
         # Área de notificações
         notifications_frame = ttk.LabelFrame(dashboard_frame, text="Notificações")
@@ -163,6 +200,40 @@ class CliniSysApp(tk.Tk):
         self._add_notification("Sistema iniciado com sucesso!")
         self._add_notification("Banco de dados conectado.")
     
+    def _get_buttons_for_profile(self, profile):
+        """Retorna os botões disponíveis para cada perfil do usuário"""
+        buttons_config = {}
+        
+        if profile == 'admin':
+            buttons_config = {
+                'novo_paciente': {'text': 'Novo Paciente', 'command': self._new_patient},
+                'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
+                'gerenciar_usuarios': {'text': 'Gerenciar Usuários', 'command': self._open_users_window},
+                'gerenciar_clinicas': {'text': 'Gerenciar Clínicas', 'command': self._open_clinicas_window},
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented},
+                'relatorios': {'text': 'Relatórios', 'command': self._show_not_implemented}
+            }
+        elif profile == 'recepcionista':
+            buttons_config = {
+                'novo_paciente': {'text': 'Novo Paciente', 'command': self._new_patient},
+                'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented}
+            }
+        elif profile == 'professor':
+            buttons_config = {
+                'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
+                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._show_not_implemented},
+                'relatorios': {'text': 'Relatórios', 'command': self._show_not_implemented}
+            }
+        elif profile == 'aluno':
+            buttons_config = {
+                'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented},
+                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._show_not_implemented}
+            }
+        
+        return buttons_config
+    
     def _update_interface_for_user(self):
         """Atualiza interface baseada no perfil do usuário"""
         if not self.current_user:
@@ -173,12 +244,16 @@ class CliniSysApp(tk.Tk):
         
         if user_profile == 'admin':
             self._add_notification(f"Bem-vindo, Administrador {self.current_user['nome']}!")
+            self._add_notification("Você tem acesso completo ao sistema: usuários, pacientes e relatórios.")
         elif user_profile == 'recepcionista':
             self._add_notification(f"Bem-vinda, {self.current_user['nome']}! Gerenciamento de pacientes disponível.")
+            self._add_notification("Você pode cadastrar pacientes e gerenciar a fila de triagem.")
         elif user_profile == 'professor':
             self._add_notification(f"Bem-vindo, Prof. {self.current_user['nome']}! Acesso a atendimentos e relatórios.")
+            self._add_notification("Você pode autorizar altas e gerar relatórios de atendimentos.")
         elif user_profile == 'aluno':
             self._add_notification(f"Bem-vindo, {self.current_user['nome']}! Acesso a atendimentos disponível.")
+            self._add_notification("Você pode realizar triagens, agendar e fazer consultas.")
     
     def _focus_pacientes_tab(self):
         """Foca na aba de pacientes"""
@@ -234,12 +309,38 @@ Funcionalidades:
         self.notifications_text.see("end")
     
     def _open_users_window(self):
-        """Abre janela de gerenciamento de usuários"""
+        """Abre janela de gerenciamento de usuários (APENAS para administradores)"""
+        # Verificação de segurança: apenas admin pode acessar
+        if not self.current_user or self.current_user.get('perfil') != 'admin':
+            messagebox.showerror(
+                "Acesso Negado", 
+                "Apenas administradores podem acessar o gerenciamento de usuários.",
+                parent=self
+            )
+            return
+        
         try:
             users_window = UsersApp()
             users_window.mainloop()
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir gerenciador de usuários:\n{str(e)}")
+    
+    def _open_clinicas_window(self):
+        """Abre janela de gerenciamento de clínicas (APENAS para administradores)"""
+        # Verificação de segurança: apenas admin pode acessar
+        if not self.current_user or self.current_user.get('perfil') != 'admin':
+            messagebox.showerror(
+                "Acesso Negado", 
+                "Apenas administradores podem acessar o gerenciamento de clínicas.",
+                parent=self
+            )
+            return
+        
+        try:
+            clinicas_window = show_clinicas_manager(self)
+            # A janela já é modal, não precisa de mainloop adicional
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir gerenciador de clínicas:\n{str(e)}")
     
     def _new_patient(self):
         """Novo paciente - foca na aba de pacientes"""

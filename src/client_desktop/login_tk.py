@@ -143,7 +143,7 @@ class LoginDialog(tk.Toplevel):
         self.lbl_erro.config(text="")
         
         email = self.var_email.get().strip()
-        senha = self.var_senha.get()
+        senha = self.var_senha.get().strip()
         
         # Validações básicas
         if not email:
@@ -183,18 +183,25 @@ class LoginDialog(tk.Toplevel):
                 self.entry_email.focus()
                 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.lbl_erro.config(text=f"Erro ao autenticar: {str(e)}")
             self.entry_senha.delete(0, tk.END)
     
     async def _authenticate_user(self, email: str, senha: str) -> Optional[UsuarioSistema]:
         """Autentica o usuário no banco de dados"""
-        async with AsyncSessionLocal() as session:
-            user = await authenticate_user(session, email, senha)
-            
-            if user and not user.ativo:
-                raise ValueError("Usuário inativo. Contate o administrador.")
-            
-            return user
+        try:
+            async with AsyncSessionLocal() as session:
+                user = await authenticate_user(session, email, senha)
+                
+                if user and not user.ativo:
+                    raise ValueError("Usuário inativo. Contate o administrador.")
+                
+                return user
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise
 
 
 class LoginApp(tk.Tk):
@@ -226,7 +233,6 @@ class LoginApp(tk.Tk):
         self.user_data = user_data
         self.authenticated = True
         
-        # Pode adicionar lógica adicional aqui
         print(f"Login bem-sucedido: {user_data['nome']} ({user_data['perfil']})")
 
 
@@ -239,7 +245,7 @@ def show_login_dialog(master: Optional[tk.Tk] = None) -> Optional[Dict[str, Any]
     """
     print("Criando dialog de login...")
     
-    # Criar uma nova janela principal para o login ao invés de Toplevel
+    # Criar uma nova janela principal para o login
     print("Criando janela Tkinter...")
     login_window = tk.Tk()
     print("Janela criada, configurando...")
@@ -362,19 +368,31 @@ def _create_login_content(window, on_success_callback, on_cancel_callback):
         window.update()
         
         try:
-            # Usar as credenciais padrão por enquanto para teste
-            if email == "admin@exemplo.com" and senha == "admin123":
+            # Usar autenticação real do backend
+            async def _authenticate():
+                async with AsyncSessionLocal() as session:
+                    user = await authenticate_user(session, email, senha)
+                    if user and not user.ativo:
+                        raise ValueError("Usuário inativo. Contate o administrador.")
+                    return user
+            
+            user = asyncio.run(_authenticate())
+            
+            if user:
                 user_data = {
-                    'id': 1,
-                    'nome': 'Administrador',
-                    'email': 'admin@exemplo.com',
-                    'perfil': 'admin',
-                    'ativo': True
+                    'id': user.id,
+                    'nome': user.nome,
+                    'email': user.email,
+                    'perfil': user.perfil.value,
+                    'ativo': user.ativo
                 }
                 on_success_callback(user_data)
             else:
                 error_label.config(text="Email ou senha inválidos")
+                
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             error_label.config(text=f"Erro na autenticação: {str(e)}")
     
     def on_login():

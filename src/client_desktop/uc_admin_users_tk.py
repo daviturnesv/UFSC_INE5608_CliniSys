@@ -21,6 +21,7 @@ from src.backend.controllers.usuario_service import (
     validate_password_policy,
 )
 from src.backend.core.security import hash_password
+from src.client_desktop.user_profile import UserProfileDialog
 from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 
@@ -35,8 +36,19 @@ ERR_CLINICA_REQUIRED = "clinica_id é obrigatório para aluno/professor"
 ERR_CLINICA_NOT_FOUND = "Clínica informada não existe"
 
 
+def _normalize_cpf(cpf: str | None) -> str | None:
+    """Remove pontos e hífens do CPF, mantendo apenas números"""
+    if not cpf:
+        return None
+    return ''.join(filter(str.isdigit, cpf))
+
+
 def _is_valid_cpf(cpf: str | None) -> bool:
-    return bool(cpf) and cpf.isdigit() and len(cpf) == 11
+    """Valida CPF aceitando formato com ou sem pontos e hífens"""
+    if not cpf:
+        return False
+    normalized = _normalize_cpf(cpf)
+    return bool(normalized) and len(normalized) == 11
 
 
 def _is_valid_email(email: str | None) -> bool:
@@ -77,9 +89,14 @@ async def _validate_and_prepare_cpf(session, current_cpf: str, new_cpf: Optional
         return None
     if not _is_valid_cpf(new_cpf):
         raise ValueError(ERR_CPF_FORMAT)
-    if new_cpf != (current_cpf or "") and await _exists_other_with(session, UsuarioSistema.cpf, new_cpf, user_id):
+    
+    # Normalizar CPF (remover pontos e hífens)
+    new_cpf_normalizado = _normalize_cpf(new_cpf)
+    current_cpf_normalizado = _normalize_cpf(current_cpf) or ""
+    
+    if new_cpf_normalizado != current_cpf_normalizado and await _exists_other_with(session, UsuarioSistema.cpf, new_cpf_normalizado, user_id):
         raise ValueError(ERR_CPF_DUP)
-    return new_cpf
+    return new_cpf_normalizado
 
 
 async def init_db_and_seed() -> None:
@@ -144,16 +161,28 @@ async def get_user_detail(user_id: int) -> dict:
             raise ValueError("Usuário não encontrado")
         
         clinica_id = None
-        # Buscar clinica_id dos perfis específicos
+        telefone_perfil = None
+        
+        # Buscar dados dos perfis específicos
         pd = await svc_get_profile_data(session, user)
-        if pd and hasattr(pd, 'clinica_id'):
-            clinica_id = pd.clinica_id
+        if pd:
+            # Extrair clinica_id se disponível
+            if "clinica" in pd and isinstance(pd["clinica"], dict):
+                clinica_id = pd["clinica"]["id"]
+            elif "clinica_id" in pd:
+                clinica_id = pd["clinica_id"]
+            
+            # Extrair telefone do perfil se disponível (alunos e recepcionistas)
+            if "telefone" in pd:
+                telefone_perfil = pd["telefone"]
         
         return {
             "id": user.id,
             "nome": user.nome,
             "email": user.email,
             "cpf": user.cpf or "",
+            "telefone": user.telefone or "",  # Telefone geral do usuário
+            "telefone_perfil": telefone_perfil,  # Telefone específico do perfil
             "perfil": user.perfil.value,
             "ativo": user.ativo,
             "clinica_id": clinica_id,
@@ -166,9 +195,13 @@ async def list_clinicas() -> list[dict]:
         return [{"id": c.id, "codigo": c.codigo, "nome": c.nome} for c in res.scalars().all()]
 
 
-async def create_user(nome: str, email: str, senha: str, perfil: str, cpf: str, clinica_id: Optional[int], extras: dict | None) -> dict:
+async def create_user(nome: str, email: str, senha: str, perfil: str, cpf: str, clinica_id: Optional[int], telefone: Optional[str] = None, extras: dict | None = None) -> dict:
     if not _is_valid_cpf(cpf):
         raise ValueError(ERR_CPF_FORMAT)
+    
+    # Normalizar CPF (remover pontos e hífens)
+    cpf_normalizado = _normalize_cpf(cpf)
+    
     validate_password_policy(senha)
     if not _is_valid_email(email):
         raise ValueError(ERR_EMAIL_INVALID)
@@ -187,19 +220,47 @@ async def create_user(nome: str, email: str, senha: str, perfil: str, cpf: str, 
         # Pre-valida duplicidades amigavelmente
         if (await session.execute(select(UsuarioSistema).where(UsuarioSistema.email == email))).scalars().first():
             raise ValueError(ERR_EMAIL_DUP)
-        if (await session.execute(select(UsuarioSistema).where(UsuarioSistema.cpf == cpf))).scalars().first():
+        if (await session.execute(select(UsuarioSistema).where(UsuarioSistema.cpf == cpf_normalizado))).scalars().first():
             raise ValueError(ERR_CPF_DUP)
 
         try:
-            u = await svc_create_user(
-                session,
+            # Criar o usuário base
+            u = UsuarioSistema(
                 nome=nome,
                 email=email,
-                senha=senha,
+                senha_hash=hash_password(senha),
                 perfil=per,
-                dados_perfil=dados_perfil,
-                cpf=cpf,
+                cpf=cpf_normalizado,
+                telefone=telefone,  # Incluir telefone geral
             )
+            session.add(u)
+            await session.flush()  # Para obter o ID
+            
+            # Criar perfil específico se necessário
+            if per == PerfilUsuario.professor:
+                perfil_prof = PerfilProfessor(
+                    user_id=u.id,
+                    especialidade=dados_perfil.get("especialidade"),
+                    clinica_id=dados_perfil.get("clinica_id"),
+                )
+                session.add(perfil_prof)
+            elif per == PerfilUsuario.aluno:
+                perfil_aluno = PerfilAluno(
+                    user_id=u.id,
+                    matricula=dados_perfil.get("matricula"),
+                    telefone=dados_perfil.get("telefone"),
+                    clinica_id=dados_perfil.get("clinica_id"),
+                )
+                session.add(perfil_aluno)
+            elif per == PerfilUsuario.recepcionista:
+                perfil_recep = PerfilRecepcionista(
+                    user_id=u.id,
+                    telefone=dados_perfil.get("telefone")
+                )
+                session.add(perfil_recep)
+            
+            await session.commit()
+            await session.refresh(u)
             return {"id": u.id, "nome": u.nome, "email": u.email}
         except IntegrityError as e:
             _map_integrity_error(e)
@@ -348,6 +409,12 @@ class CreateUserDialog(tk.Toplevel):
         self.err_email.grid(row=row, column=2, sticky="w")
         row += 1
 
+        ttk.Label(self, text="Telefone (opcional)").grid(row=row, column=0, sticky="e", padx=6, pady=4)
+        self.var_telefone = tk.StringVar(self)
+        self.entry_telefone = ttk.Entry(self, textvariable=self.var_telefone, width=32)
+        self.entry_telefone.grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        row += 1
+
         ttk.Label(self, text="Perfil").grid(row=row, column=0, sticky="e", padx=6, pady=4)
         self.cmb_perfil = ttk.OptionMenu(
             self,
@@ -375,10 +442,19 @@ class CreateUserDialog(tk.Toplevel):
         self.entry_confirma.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         row += 1
 
-        self.lbl_clin = ttk.Label(self, text="Clinica ID (Aluno/Prof)")
-        self.ent_clin = ttk.Entry(self, textvariable=self.var_clinica, width=32)
+        self.lbl_clin = ttk.Label(self, text="Clínica (Aluno/Prof)")
+        self.cmb_clin = ttk.Combobox(self, textvariable=self.var_clinica, state="readonly", width=29)
+        
+        # Preparar opções do combobox de clínicas
+        clinicas_options = [""]  # Opção vazia
+        if clinicas:
+            for clinica in clinicas:
+                option = f"{clinica['id']} - {clinica['nome']}"
+                clinicas_options.append(option)
+        self.cmb_clin.config(values=clinicas_options)
+        
         self.lbl_clin.grid(row=row, column=0, sticky="e", padx=6, pady=4)
-        self.ent_clin.grid(row=row, column=1, sticky="w", padx=6, pady=4)
+        self.cmb_clin.grid(row=row, column=1, sticky="w", padx=6, pady=4)
         row += 1
 
         btns = ttk.Frame(self)
@@ -393,15 +469,20 @@ class CreateUserDialog(tk.Toplevel):
         row += 1
 
         if clinicas and len(clinicas) == 1:
-            self.var_clinica.set(str(clinicas[0]["id"]))
+            # Se há apenas uma clínica, selecioná-la automaticamente
+            self.var_clinica.set(f"{clinicas[0]['id']} - {clinicas[0]['nome']}")
         if initial:
             self.var_nome.set(initial.get("nome", ""))
             self.var_email.set(initial.get("email", ""))
             self.var_cpf.set(initial.get("cpf", ""))
             self.var_perfil.set(initial.get("perfil", self.var_perfil.get()))
             cid = initial.get("clinica_id")
-            if cid is not None:
-                self.var_clinica.set(str(cid))
+            if cid is not None and clinicas:
+                # Encontrar a clínica correspondente
+                for clinica in clinicas:
+                    if clinica['id'] == cid:
+                        self.var_clinica.set(f"{clinica['id']} - {clinica['nome']}")
+                        break
 
         self.on_perfil_change(self.var_perfil.get())
         self.grab_set()
@@ -409,9 +490,9 @@ class CreateUserDialog(tk.Toplevel):
 
     def on_perfil_change(self, value: str):
         need = value in ("aluno", "professor")
-        state = "normal" if need else "disabled"
-        self.ent_clin.configure(state=state)
-        self.lbl_clin.configure(state=state)
+        state = "readonly" if need else "disabled"
+        self.cmb_clin.configure(state=state)
+        self.lbl_clin.configure(state="normal" if need else "disabled")
 
     def _clear_errors(self):
         if hasattr(self, "err_email"):
@@ -421,16 +502,27 @@ class CreateUserDialog(tk.Toplevel):
         if hasattr(self, "err_general"):
             self.err_general.config(text="")
 
+    def get_clinica_id_from_selection(self, selection: str) -> Optional[int]:
+        """Extrai o ID da clínica a partir da seleção do combobox"""
+        if not selection or not selection.strip():
+            return None
+        try:
+            return int(selection.split(" - ")[0])
+        except (ValueError, IndexError):
+            return None
+
     def _collect_form_data(self) -> dict:
-        clin_raw = self.var_clinica.get().strip()
+        clinica_id = self.get_clinica_id_from_selection(self.var_clinica.get())
+        telefone = self.var_telefone.get().strip() if hasattr(self, 'var_telefone') else ""
         data = {
             "nome": self.var_nome.get().strip(),
             "cpf": self.var_cpf.get().strip(),
             "email": self.var_email.get().strip(),
+            "telefone": telefone if telefone else None,
             "perfil": self.var_perfil.get(),
             "senha": self.var_senha.get(),
             "confirma": self.var_confirma.get(),
-            "clinica_id": int(clin_raw) if clin_raw else None,
+            "clinica_id": clinica_id,
         }
         return data
 
@@ -497,6 +589,7 @@ class UsersApp(tk.Tk):
         
         # Variáveis de estado
         self.users_data = []
+        self.clinicas_data = []  # Lista de clínicas disponíveis
         self.selected_user = None
         self.edit_mode = False  # Controla se está no modo de edição
         
@@ -532,7 +625,11 @@ class UsersApp(tk.Tk):
         
         self.btn_refresh = ttk.Button(self.buttons_frame, text="🔄 Atualizar", 
                                      command=self.cmd_listar)
-        self.btn_refresh.pack(side=tk.LEFT)
+        self.btn_refresh.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.btn_my_profile = ttk.Button(self.buttons_frame, text="👤 Meu Perfil", 
+                                        command=self.cmd_my_profile)
+        self.btn_my_profile.pack(side=tk.LEFT)
         
         # Container para lista de usuários (inicialmente oculto)
         self.users_container = ttk.LabelFrame(main_frame, text="Lista de Usuários")
@@ -582,11 +679,79 @@ class UsersApp(tk.Tk):
         self.var_clinica = tk.StringVar()
         self.var_nova_senha = tk.StringVar()
         
+        # Campos específicos do perfil (inicializados como ocultos)
+        self.profile_fields = {}
+        
         self._create_details_form()
         
         # Estado da interface
         self.users_list_visible = False
         self.details_visible = False
+
+    def _create_profile_specific_fields(self, parent, start_row):
+        """Cria campos específicos do perfil que são mostrados/ocultos conforme necessário"""
+        # Campos do professor
+        self.profile_fields['professor'] = {}
+        self.profile_fields['professor']['especialidade_label'] = ttk.Label(parent, text="Especialidade:")
+        self.profile_fields['professor']['especialidade_var'] = tk.StringVar()
+        self.profile_fields['professor']['especialidade_entry'] = ttk.Entry(
+            parent, textvariable=self.profile_fields['professor']['especialidade_var'], 
+            state="readonly", width=30
+        )
+        
+        # Campos do recepcionista
+        self.profile_fields['recepcionista'] = {}
+        self.profile_fields['recepcionista']['telefone_label'] = ttk.Label(parent, text="Telefone/Ramal:")
+        self.profile_fields['recepcionista']['telefone_var'] = tk.StringVar()
+        self.profile_fields['recepcionista']['telefone_entry'] = ttk.Entry(
+            parent, textvariable=self.profile_fields['recepcionista']['telefone_var'], 
+            state="readonly", width=30
+        )
+        
+        # Campos do aluno
+        self.profile_fields['aluno'] = {}
+        self.profile_fields['aluno']['matricula_label'] = ttk.Label(parent, text="Matrícula:")
+        self.profile_fields['aluno']['matricula_var'] = tk.StringVar()
+        self.profile_fields['aluno']['matricula_entry'] = ttk.Entry(
+            parent, textvariable=self.profile_fields['aluno']['matricula_var'], 
+            state="readonly", width=30
+        )
+        
+        self.profile_fields['aluno']['telefone_label'] = ttk.Label(parent, text="Telefone Acadêmico:")
+        self.profile_fields['aluno']['telefone_var'] = tk.StringVar()
+        self.profile_fields['aluno']['telefone_entry'] = ttk.Entry(
+            parent, textvariable=self.profile_fields['aluno']['telefone_var'], 
+            state="readonly", width=30
+        )
+        
+        # Armazenar informações de posicionamento
+        self.profile_start_row = start_row
+
+    def _show_profile_fields(self, perfil):
+        """Mostra os campos específicos do perfil selecionado"""
+        # Esconder todos os campos primeiro
+        for profile_type, fields in self.profile_fields.items():
+            for widget_name, widget in fields.items():
+                if hasattr(widget, 'grid_remove'):
+                    widget.grid_remove()
+        
+        # Mostrar campos do perfil atual
+        if perfil in self.profile_fields:
+            row = self.profile_start_row
+            fields = self.profile_fields[perfil]
+            
+            if perfil == 'professor':
+                fields['especialidade_label'].grid(row=row, column=0, sticky="e", padx=5, pady=5)
+                fields['especialidade_entry'].grid(row=row, column=1, sticky="w", padx=5)
+            elif perfil == 'recepcionista':
+                fields['telefone_label'].grid(row=row, column=0, sticky="e", padx=5, pady=5)
+                fields['telefone_entry'].grid(row=row, column=1, sticky="w", padx=5)
+            elif perfil == 'aluno':
+                fields['matricula_label'].grid(row=row, column=0, sticky="e", padx=5, pady=5)
+                fields['matricula_entry'].grid(row=row, column=1, sticky="w", padx=5)
+                row += 1
+                fields['telefone_label'].grid(row=row, column=0, sticky="e", padx=5, pady=5)
+                fields['telefone_entry'].grid(row=row, column=1, sticky="w", padx=5)
 
     def _create_details_form(self):
         """Cria o formulário de detalhes do usuário"""
@@ -615,6 +780,12 @@ class UsersApp(tk.Tk):
         self.entry_cpf.grid(row=row, column=1, sticky="w", padx=5)
         row += 1
         
+        ttk.Label(details_frame, text="Telefone:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.var_telefone = tk.StringVar()
+        self.entry_telefone = ttk.Entry(details_frame, textvariable=self.var_telefone, state="readonly", width=30)
+        self.entry_telefone.grid(row=row, column=1, sticky="w", padx=5)
+        row += 1
+        
         ttk.Label(details_frame, text="Perfil:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
         self.cmb_perfil = ttk.Combobox(details_frame, textvariable=self.var_perfil,
                                       values=["admin", "professor", "aluno", "recepcionista"],
@@ -622,10 +793,15 @@ class UsersApp(tk.Tk):
         self.cmb_perfil.grid(row=row, column=1, sticky="w", padx=5)
         row += 1
         
-        ttk.Label(details_frame, text="Clínica ID:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
-        self.entry_clinica = ttk.Entry(details_frame, textvariable=self.var_clinica, state="readonly", width=30)
-        self.entry_clinica.grid(row=row, column=1, sticky="w", padx=5)
+        ttk.Label(details_frame, text="Clínica:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
+        self.cmb_clinica = ttk.Combobox(details_frame, textvariable=self.var_clinica,
+                                       state="readonly", width=27)
+        self.cmb_clinica.grid(row=row, column=1, sticky="w", padx=5)
         row += 1
+        
+        # Campos específicos do perfil (condicionais)
+        self._create_profile_specific_fields(details_frame, row)
+        row += 3  # Reservar espaço para campos do perfil
         
         ttk.Label(details_frame, text="Nova Senha:").grid(row=row, column=0, sticky="e", padx=5, pady=5)
         self.entry_nova_senha = ttk.Entry(details_frame, textvariable=self.var_nova_senha, show="*", state="readonly", width=30)
@@ -703,9 +879,17 @@ class UsersApp(tk.Tk):
         self.entry_nome.config(state=state)
         self.entry_email.config(state=state)
         self.entry_cpf.config(state=state)
+        self.entry_telefone.config(state=state)
         self.cmb_perfil.config(state=state if state == "normal" else "readonly")
-        self.entry_clinica.config(state=state)
+        self.cmb_clinica.config(state=state if state == "normal" else "readonly")
         self.entry_nova_senha.config(state=state)
+        
+        # Atualizar estado dos campos específicos do perfil
+        perfil = self.var_perfil.get()
+        if perfil in self.profile_fields:
+            for field_name, widget in self.profile_fields[perfil].items():
+                if 'entry' in field_name and hasattr(widget, 'config'):
+                    widget.config(state=state)
         
         # Atualizar estado dos botões
         if self.edit_mode:
@@ -736,8 +920,9 @@ class UsersApp(tk.Tk):
                 self.entry_nome.config(state="normal")
                 self.entry_email.config(state="normal")
                 self.entry_cpf.config(state="normal")
+                self.entry_telefone.config(state="normal")
                 self.cmb_perfil.config(state="normal")
-                self.entry_clinica.config(state="normal")
+                self.cmb_clinica.config(state="normal")
                 self.entry_nova_senha.config(state="normal")
                 
                 # Limpar campos primeiro
@@ -745,7 +930,7 @@ class UsersApp(tk.Tk):
                 self.entry_nome.delete(0, tk.END)
                 self.entry_email.delete(0, tk.END)
                 self.entry_cpf.delete(0, tk.END)
-                self.entry_clinica.delete(0, tk.END)
+                self.entry_telefone.delete(0, tk.END)
                 self.entry_nova_senha.delete(0, tk.END)
                 
                 # Inserir novos valores
@@ -753,22 +938,68 @@ class UsersApp(tk.Tk):
                 self.entry_nome.insert(0, user_data.get('nome', ''))
                 self.entry_email.insert(0, user_data.get('email', ''))
                 self.entry_cpf.insert(0, user_data.get('cpf', ''))
+                self.entry_telefone.insert(0, user_data.get('telefone', ''))
                 self.cmb_perfil.set(user_data.get('perfil', 'admin'))
-                self.entry_clinica.insert(0, str(user_data.get('clinica_id', '') or ''))
+                
+                # Definir clínica usando a nova função
+                self.set_clinica_selection(user_data.get('clinica_id'))
+                
+                # Mostrar campos específicos do perfil
+                perfil = user_data.get('perfil', 'admin')
+                self._show_profile_fields(perfil)
+                
+                # Carregar dados específicos do perfil
+                self._load_profile_data(user_id, perfil)
                 
                 # Atualizar StringVar também
                 self.var_id.set(str(user_data.get('id', '')))
                 self.var_nome.set(user_data.get('nome', ''))
                 self.var_email.set(user_data.get('email', ''))
                 self.var_cpf.set(user_data.get('cpf', ''))
+                self.var_telefone.set(user_data.get('telefone', ''))
                 self.var_perfil.set(user_data.get('perfil', 'admin'))
-                self.var_clinica.set(str(user_data.get('clinica_id', '') or ''))
                 self.var_nova_senha.set('')
                 
                 self.selected_user = user_data
                 self.show_user_details()
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao carregar dados do usuário: {str(e)}")
+
+    def _load_profile_data(self, user_id, perfil):
+        """Carrega dados específicos do perfil do usuário"""
+        try:
+            user_data = self.run_async(get_user_detail(user_id))
+            
+            if perfil == 'professor' and 'professor' in self.profile_fields:
+                # Buscar especialidade via serviço
+                profile_data = self.run_async(self._get_profile_data_async(user_id))
+                especialidade = profile_data.get('especialidade', '') if profile_data else ''
+                self.profile_fields['professor']['especialidade_var'].set(especialidade)
+                
+            elif perfil == 'recepcionista' and 'recepcionista' in self.profile_fields:
+                # Buscar telefone/ramal do perfil
+                telefone_perfil = user_data.get('telefone_perfil', '')
+                self.profile_fields['recepcionista']['telefone_var'].set(telefone_perfil or '')
+                
+            elif perfil == 'aluno' and 'aluno' in self.profile_fields:
+                # Buscar dados do aluno
+                profile_data = self.run_async(self._get_profile_data_async(user_id))
+                if profile_data:
+                    matricula = profile_data.get('matricula', '')
+                    telefone_academico = profile_data.get('telefone', '')
+                    self.profile_fields['aluno']['matricula_var'].set(matricula)
+                    self.profile_fields['aluno']['telefone_var'].set(telefone_academico or '')
+                    
+        except Exception as e:
+            print(f"Erro ao carregar dados do perfil: {e}")
+
+    async def _get_profile_data_async(self, user_id):
+        """Função async para buscar dados do perfil"""
+        async with AsyncSessionLocal() as session:
+            user = await session.get(UsuarioSistema, user_id)
+            if user:
+                return await svc_get_profile_data(session, user)
+            return None
 
     def apply_filters(self):
         """Aplica os filtros na lista de usuários"""
@@ -781,6 +1012,7 @@ class UsersApp(tk.Tk):
     def bootstrap(self):
         try:
             self.run_async(init_db_and_seed())
+            self.load_clinicas()  # Carregar clínicas após inicializar DB
         except Exception as e:
             messagebox.showerror("Erro ao iniciar", str(e))
 
@@ -797,6 +1029,48 @@ class UsersApp(tk.Tk):
             self.load_user_data(uid)
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao selecionar usuário: {str(e)}")
+
+    def load_clinicas(self):
+        """Carrega as clínicas disponíveis e atualiza o combobox"""
+        try:
+            self.clinicas_data = self.run_async(list_clinicas())
+            # Preparar lista para o combobox (formato: "ID - Nome")
+            clinicas_options = [""]  # Opção vazia para "Nenhuma clínica"
+            for clinica in self.clinicas_data:
+                option = f"{clinica['id']} - {clinica['nome']}"
+                clinicas_options.append(option)
+            
+            # Atualizar combobox
+            self.cmb_clinica.config(values=clinicas_options)
+        except Exception as e:
+            print(f"Erro ao carregar clínicas: {e}")
+            self.clinicas_data = []
+            self.cmb_clinica.config(values=[""])
+
+    def get_clinica_id_from_selection(self, selection: str) -> Optional[int]:
+        """Extrai o ID da clínica a partir da seleção do combobox"""
+        if not selection or not selection.strip():
+            return None
+        try:
+            return int(selection.split(" - ")[0])
+        except (ValueError, IndexError):
+            return None
+
+    def set_clinica_selection(self, clinica_id: Optional[int]):
+        """Define a seleção do combobox baseado no ID da clínica"""
+        if clinica_id is None:
+            self.var_clinica.set("")
+            return
+        
+        # Procurar a opção correspondente
+        for clinica in self.clinicas_data:
+            if clinica['id'] == clinica_id:
+                selection = f"{clinica['id']} - {clinica['nome']}"
+                self.var_clinica.set(selection)
+                return
+        
+        # Se não encontrou, limpar seleção
+        self.var_clinica.set("")
 
     def cmd_listar(self):
         """Lista os usuários aplicando filtros"""
@@ -838,7 +1112,7 @@ class UsersApp(tk.Tk):
 
     def _submit_create(self, data: dict):
         return self.run_async(create_user(
-            data["nome"], data["email"], data["senha"], data["perfil"], data["cpf"], data["clinica_id"], None
+            data["nome"], data["email"], data["senha"], data["perfil"], data["cpf"], data["clinica_id"], data.get("telefone"), None
         ))
 
     def cmd_novo(self):
@@ -864,6 +1138,16 @@ class UsersApp(tk.Tk):
             messagebox.showinfo("Sucesso", "Usuário criado")
         except Exception:
             pass
+
+    def cmd_my_profile(self):
+        """Abre a tela de perfil do usuário atual"""
+        # Por simplicidade, assumindo que o usuário logado é o ID 1 (admin)
+        # Em uma implementação real, você teria o ID do usuário logado
+        dialog = UserProfileDialog(self, user_id=1)
+        self.wait_window(dialog)
+        
+        if dialog.result:
+            messagebox.showinfo("Sucesso", "Perfil atualizado com sucesso!")
 
     def cmd_atualizar(self):
         try:
@@ -897,20 +1181,22 @@ class UsersApp(tk.Tk):
             print(f"  var_cpf: '{self.var_cpf.get()}'")
             print(f"  var_perfil: '{self.var_perfil.get()}'")
             
-            # CORREÇÃO: Ler diretamente dos widgets (StringVars não sincronizam após readonly->normal)
+            # Ler diretamente dos widgets (StringVars não sincronizam após readonly->normal)
             try:
                 nome = self.entry_nome.get().strip() or None
                 email = self.entry_email.get().strip() or None
                 cpf = self.entry_cpf.get().strip() or None
                 perfil = self.cmb_perfil.get().strip() or None
-                clin_raw = self.var_clinica.get().strip()  # Este não tem widget direto
-                clinica_id = int(clin_raw) if clin_raw else None
+                clinica_id = self.get_clinica_id_from_selection(self.cmb_clinica.get())
+                nova_senha = self.entry_nova_senha.get().strip()
                 
                 print(f"Valores corretos (lidos dos widgets):")
                 print(f"  entry_nome.get(): '{nome}'")
                 print(f"  entry_email.get(): '{email}'")
                 print(f"  entry_cpf.get(): '{cpf}'")
                 print(f"  cmb_perfil.get(): '{perfil}'")
+                print(f"  clinica_id: {clinica_id}")
+                print(f"  entry_nova_senha.get(): '{'***' if nova_senha else '(vazia)'}'")
             except Exception as e:
                 print(f"Erro ao ler widgets diretamente: {e}")
                 return
@@ -922,7 +1208,9 @@ class UsersApp(tk.Tk):
             print(f"  Perfil: '{dados_originais.get('perfil', '')}' -> '{perfil}'")
             print(f"  Clinica ID: {dados_originais.get('clinica_id', '')} -> {clinica_id}")
             
-            # Verificar se houve mudanças
+            # Verificar se houve mudanças (incluindo senha)
+            print(f"  Nova Senha: {'***' if nova_senha else '(vazia)'}")
+            
             mudancas = []
             if nome != dados_originais.get('nome'):
                 mudancas.append('nome')
@@ -934,6 +1222,8 @@ class UsersApp(tk.Tk):
                 mudancas.append('perfil')
             if clinica_id != dados_originais.get('clinica_id'):
                 mudancas.append('clinica_id')
+            if nova_senha:  # Se foi fornecida uma nova senha
+                mudancas.append('senha')
                 
             print(f"Campos que mudaram: {mudancas}")
             
@@ -944,7 +1234,18 @@ class UsersApp(tk.Tk):
             
             # Atualizar no banco
             self.run_async(update_user(uid, nome=nome, email=email, cpf=cpf, perfil=perfil, clinica_id=clinica_id))
+            
+            # Atualizar senha separadamente se fornecida
+            if nova_senha:
+                print("Atualizando senha...")
+                self.run_async(change_password(uid, nova_senha))
             print("Atualização no banco concluída")
+            
+            # Limpar campo de senha após atualização
+            if nova_senha:
+                self.var_nova_senha.set("")
+                self.entry_nova_senha.delete(0, tk.END)
+                print("Campo de senha limpo")
             
             # Sair do modo edição
             self.edit_mode = False

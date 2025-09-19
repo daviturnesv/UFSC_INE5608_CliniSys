@@ -16,7 +16,8 @@ SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from backend.database import Base, get_database_url  # noqa: E402
+from src.backend.db.database import Base  # noqa: E402
+from src.backend.core.config import settings  # noqa: E402
 
 # Alembic Config object
 config = context.config
@@ -29,7 +30,11 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return get_database_url()
+    # Converter async URL para sync URL para alembic
+    url = settings.database_url
+    if url.startswith("sqlite+aiosqlite://"):
+        url = url.replace("sqlite+aiosqlite://", "sqlite://")
+    return url
 
 
 def run_migrations_offline() -> None:
