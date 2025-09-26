@@ -64,25 +64,38 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_migrations_online() -> None:
+def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     configuration = config.get_section(config.config_ini_section)  # type: ignore[arg-type]
     assert configuration is not None
-    configuration["sqlalchemy.url"] = get_url()
+    
+    # Usar URL sync para migrações
+    sync_url = get_url()
+    configuration["sqlalchemy.url"] = sync_url
 
-    connectable = async_engine_from_config(
+    # Usar engine síncrono para migrações
+    from sqlalchemy import engine_from_config
+    connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    async with connectable.begin() as connection:  # type: ignore[call-arg]
-        await connection.run_sync(do_run_migrations)
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+        )
 
-    await connectable.dispose()
+        with context.begin_transaction():
+            context.run_migrations()
+
+    connectable.dispose()
 
 
 if context.is_offline_mode():  # type: ignore[attr-defined]
     run_migrations_offline()
 else:
-    asyncio.run(run_migrations_online())
+    run_migrations_online()

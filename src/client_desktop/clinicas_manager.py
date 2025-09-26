@@ -42,8 +42,8 @@ class ClinicasApp(tk.Toplevel):
         self._create_widgets()
         self._center_window()
         
-        # Carregar dados iniciais
-        self.run_async(self._load_clinicas())
+        # Carregar dados iniciais após a interface estar pronta
+        self.after_idle(lambda: self.run_async(self._load_clinicas()))
     
     def _center_window(self):
         """Centraliza a janela na tela"""
@@ -159,16 +159,15 @@ class ClinicasApp(tk.Toplevel):
     def run_async(self, coro):
         """Executa corrotina de forma síncrona"""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Se já há um loop rodando, criar uma nova task
-                task = loop.create_task(coro)
-                return task
-            else:
-                return loop.run_until_complete(coro)
-        except RuntimeError:
-            # Se não há loop, criar um novo
             return asyncio.run(coro)
+        except Exception as e:
+            self._handle_async_error(e)
+    
+    def _handle_async_error(self, error: Exception):
+        """Trata erros de operações assíncronas"""
+        error_message = f"Erro na operação: {str(error)}"
+        print(f"[ERROR] {error_message}")  # Log para debug
+        messagebox.showerror("Erro", error_message)
     
     async def _load_clinicas(self):
         """Carrega lista de clínicas do banco"""

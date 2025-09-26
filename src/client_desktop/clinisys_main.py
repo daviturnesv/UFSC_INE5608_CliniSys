@@ -11,6 +11,7 @@ from tkinter import ttk, messagebox
 import sys
 import os
 from typing import Dict, Any
+from datetime import datetime, date
 
 # Adiciona o diretório raiz ao path para importações
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -18,6 +19,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.client_desktop.uc_admin_users_tk import UsersApp, init_db_and_seed
 from src.client_desktop.pacientes_tk import PacientesTab
 from src.client_desktop.login_tk import show_login_dialog
+from src.client_desktop.clinicas_manager import show_clinicas_manager
+from src.client_desktop.triagem_visual import abrir_triagem_visual
+from src.client_desktop.agendamento_visual import abrir_agendamento_consultas
+
+# Imports para dashboard
+from src.backend.db.database import AsyncSessionLocal
+from src.backend.models.paciente import Paciente
+from src.backend.models.fila import FilaAtendimento, StatusFila
+from sqlalchemy import select, func
 from src.client_desktop.clinicas_manager import show_clinicas_manager
 
 
@@ -106,6 +116,9 @@ class CliniSysApp(tk.Tk):
         # Aba Dashboard
         self._create_dashboard_tab()
         
+        # Carregar dados da dashboard após a interface estar pronta
+        self.after_idle(lambda: self._refresh_dashboard_stats())
+        
         # Aba Pacientes
         self.pacientes_tab = PacientesTab(self.notebook)
         self.notebook.add(self.pacientes_tab, text="Pacientes")
@@ -127,10 +140,12 @@ class CliniSysApp(tk.Tk):
         stats_frame.pack(fill="x", padx=20, pady=10)
         
         # Cards de estatísticas
-        self._create_stat_card(stats_frame, "Pacientes\nCadastrados", "0", 0, 0)
-        self._create_stat_card(stats_frame, "Aguardando\nTriagem", "0", 0, 1)
-        self._create_stat_card(stats_frame, "Em\nAtendimento", "0", 0, 2)
-        self._create_stat_card(stats_frame, "Atendimentos\nHoje", "0", 0, 3)
+        # Dicionário para armazenar referências aos labels de valores
+        self.stat_labels = {}
+        self.stat_labels['pacientes_cadastrados'] = self._create_stat_card(stats_frame, "Pacientes\nCadastrados", "0", 0, 0)
+        self.stat_labels['aguardando_triagem'] = self._create_stat_card(stats_frame, "Aguardando\nTriagem", "0", 0, 1)
+        self.stat_labels['em_atendimento'] = self._create_stat_card(stats_frame, "Em\nAtendimento", "0", 0, 2)
+        self.stat_labels['atendimentos_hoje'] = self._create_stat_card(stats_frame, "Atendimentos\nHoje", "0", 0, 3)
         
         # Frame para ações rápidas
         actions_frame = ttk.LabelFrame(dashboard_frame, text="Ações Rápidas")
@@ -206,30 +221,36 @@ class CliniSysApp(tk.Tk):
         
         if profile == 'admin':
             buttons_config = {
+                'atualizar_dashboard': {'text': '🔄 Atualizar', 'command': self._refresh_dashboard_stats},
                 'novo_paciente': {'text': 'Novo Paciente', 'command': self._new_patient},
                 'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
                 'gerenciar_usuarios': {'text': 'Gerenciar Usuários', 'command': self._open_users_window},
                 'gerenciar_clinicas': {'text': 'Gerenciar Clínicas', 'command': self._open_clinicas_window},
-                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented},
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._abrir_triagem_visual},
                 'relatorios': {'text': 'Relatórios', 'command': self._show_not_implemented}
             }
         elif profile == 'recepcionista':
             buttons_config = {
+                'atualizar_dashboard': {'text': '🔄 Atualizar', 'command': self._refresh_dashboard_stats},
                 'novo_paciente': {'text': 'Novo Paciente', 'command': self._new_patient},
                 'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
-                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented}
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._abrir_triagem_visual}
             }
         elif profile == 'professor':
             buttons_config = {
+                'atualizar_dashboard': {'text': '🔄 Atualizar', 'command': self._refresh_dashboard_stats},
                 'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
-                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._show_not_implemented},
+                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._abrir_agendamento_consultas},
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._abrir_triagem_visual},
                 'relatorios': {'text': 'Relatórios', 'command': self._show_not_implemented}
             }
         elif profile == 'aluno':
             buttons_config = {
+                'atualizar_dashboard': {'text': '🔄 Atualizar', 'command': self._refresh_dashboard_stats},
                 'buscar_paciente': {'text': 'Buscar Paciente', 'command': self._search_patient},
-                'fila_triagem': {'text': 'Fila Triagem', 'command': self._show_not_implemented},
-                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._show_not_implemented}
+                'fila_triagem': {'text': 'Fila Triagem', 'command': self._abrir_triagem_visual},
+                'agendar_consulta': {'text': 'Agendar Consulta', 'command': self._abrir_agendamento_consultas},
+                'minhas_consultas': {'text': 'Minhas Consultas', 'command': self._abrir_minhas_consultas}
             }
         
         return buttons_config
@@ -298,6 +319,9 @@ Funcionalidades:
         
         # Configurar peso das colunas
         parent.columnconfigure(col, weight=1)
+        
+        # Retornar referência do label para poder atualizar depois
+        return value_label
     
     def _add_notification(self, message):
         """Adiciona uma notificação"""
@@ -307,6 +331,69 @@ Funcionalidades:
         self.notifications_text.insert("end", f"[{timestamp}] {message}\n")
         self.notifications_text.config(state="disabled")
         self.notifications_text.see("end")
+    
+    def _refresh_dashboard_stats(self):
+        """Atualiza as estatísticas da dashboard"""
+        try:
+            # Executar consultas assíncronas
+            stats = asyncio.run(self._load_dashboard_stats())
+            
+            # Atualizar os labels com os dados reais
+            if hasattr(self, 'stat_labels'):
+                self.stat_labels['pacientes_cadastrados'].config(text=str(stats['pacientes_cadastrados']))
+                self.stat_labels['aguardando_triagem'].config(text=str(stats['aguardando_triagem']))
+                self.stat_labels['em_atendimento'].config(text=str(stats['em_atendimento']))
+                self.stat_labels['atendimentos_hoje'].config(text=str(stats['atendimentos_hoje']))
+                
+                self._add_notification("Estatísticas atualizadas com sucesso!")
+        except Exception as e:
+            print(f"Erro ao atualizar dashboard: {e}")
+            self._add_notification(f"Erro ao carregar estatísticas: {str(e)}")
+    
+    async def _load_dashboard_stats(self):
+        """Carrega estatísticas do banco de dados"""
+        stats = {
+            'pacientes_cadastrados': 0,
+            'aguardando_triagem': 0,
+            'em_atendimento': 0,
+            'atendimentos_hoje': 0
+        }
+        
+        try:
+            async with AsyncSessionLocal() as session:
+                # Total de pacientes cadastrados
+                result = await session.execute(select(func.count(Paciente.id)))
+                stats['pacientes_cadastrados'] = result.scalar() or 0
+                
+                # Pacientes aguardando triagem (baseado no status do paciente)
+                result = await session.execute(
+                    select(func.count(Paciente.id))
+                    .where(Paciente.statusAtendimento == "Aguardando Triagem")
+                )
+                stats['aguardando_triagem'] = result.scalar() or 0
+                
+                # Pacientes em atendimento (baseado no status do paciente)
+                result = await session.execute(
+                    select(func.count(Paciente.id))
+                    .where(Paciente.statusAtendimento == "Em Atendimento")
+                )
+                stats['em_atendimento'] = result.scalar() or 0
+                
+                # Atendimentos hoje (baseado na fila de atendimento)
+                today = date.today()
+                result = await session.execute(
+                    select(func.count(FilaAtendimento.id))
+                    .where(
+                        func.date(FilaAtendimento.criado_em) == today,
+                        FilaAtendimento.status == StatusFila.concluido
+                    )
+                )
+                stats['atendimentos_hoje'] = result.scalar() or 0
+                
+        except Exception as e:
+            print(f"Erro ao carregar estatísticas do banco: {e}")
+        
+        return stats
     
     def _open_users_window(self):
         """Abre janela de gerenciamento de usuários (APENAS para administradores)"""
@@ -367,6 +454,35 @@ Funcionalidades:
     def _show_not_implemented(self):
         """Mostra mensagem de funcionalidade não implementada"""
         messagebox.showinfo("Funcionalidade", "Esta funcionalidade será implementada em versões futuras.")
+    
+    def _abrir_triagem_visual(self):
+        """Abre o sistema de triagem visual"""
+        try:
+            triagem_window = abrir_triagem_visual(self, self.current_user)
+            if triagem_window:
+                triagem_window.focus_force()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir sistema de triagem: {e}")
+    
+    def _abrir_agendamento_consultas(self):
+        """Abre o sistema de agendamento de consultas"""
+        try:
+            agendamento_window = abrir_agendamento_consultas(self, self.current_user)
+            if agendamento_window:
+                agendamento_window.focus_force()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir sistema de agendamento: {e}")
+    
+    def _abrir_minhas_consultas(self):
+        """Abre o sistema focado nas consultas do usuário"""
+        try:
+            agendamento_window = abrir_agendamento_consultas(self, self.current_user)
+            if agendamento_window:
+                # Focar na aba de "Minhas Consultas"
+                agendamento_window.notebook.select(1)  # Segunda aba
+                agendamento_window.focus_force()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir consultas: {e}")
     
 
 

@@ -140,15 +140,34 @@ async def list_users() -> list[dict]:
                 "cpf": u.cpf,
                 "ativo": u.ativo,
                 "clinica_id": None,  # Será preenchido abaixo se aplicável
+                "profile_data": {}  # Dados específicos do perfil
             }
             
-            # Buscar clinica_id dos perfis específicos
-            pd = await svc_get_profile_data(session, u)
-            if pd and hasattr(pd, 'clinica_id'):
-                d["clinica_id"] = pd.clinica_id
+            # Buscar dados específicos do perfil
+            try:
+                pd = await svc_get_profile_data(session, u)
+                if pd and isinstance(pd, dict):
+                    d["profile_data"] = pd
+                    # Extrair clinica_id se disponível
+                    if "clinica_id" in pd:
+                        d["clinica_id"] = pd["clinica_id"]
+                    elif "clinica" in pd and isinstance(pd["clinica"], dict):
+                        d["clinica_id"] = pd["clinica"]["id"]
+                elif pd and hasattr(pd, 'clinica_id'):
+                    d["clinica_id"] = pd.clinica_id
+                    # Converter objeto para dict para carregar dados
+                    profile_dict = {}
+                    if hasattr(pd, 'matricula'):
+                        profile_dict['matricula'] = pd.matricula
+                    if hasattr(pd, 'telefone'):
+                        profile_dict['telefone'] = pd.telefone
+                    if hasattr(pd, 'especialidade'):
+                        profile_dict['especialidade'] = pd.especialidade
+                    d["profile_data"] = profile_dict
+            except Exception as e:
+                print(f"Erro ao carregar dados do perfil para usuário {u.id}: {e}")
+                d["profile_data"] = {}
             
-            if pd:
-                d["perfil_dados"] = pd
             items.append(d)
         return items
 
@@ -274,6 +293,8 @@ async def update_user(
     cpf: Optional[str] = None,
     perfil: Optional[str] = None,
     clinica_id: Optional[int] = None,
+    matricula: Optional[str] = None,
+    telefone_academico: Optional[str] = None,
 ) -> None:
     async with AsyncSessionLocal() as session:
         u = await session.get(UsuarioSistema, user_id)
@@ -316,17 +337,23 @@ async def update_user(
             else:
                 if clinica_id is not None:
                     prof.clinica_id = clinica_id
+                if telefone_academico is not None:
+                    prof.telefone = telefone_academico
         elif new_perfil == PerfilUsuario.aluno:
             res = await session.execute(select(PerfilAluno).where(PerfilAluno.user_id == user_id))
             alu = res.scalar_one_or_none()
             if not alu:
                 if clinica_id is None:
                     raise ValueError(ERR_CLINICA_REQUIRED)
-                alu = PerfilAluno(user_id=user_id, clinica_id=clinica_id)
+                alu = PerfilAluno(user_id=user_id, clinica_id=clinica_id, matricula=matricula, telefone=telefone_academico)
                 session.add(alu)
             else:
                 if clinica_id is not None:
                     alu.clinica_id = clinica_id
+                if matricula is not None:
+                    alu.matricula = matricula
+                if telefone_academico is not None:
+                    alu.telefone = telefone_academico
         elif new_perfil == PerfilUsuario.recepcionista:
             res = await session.execute(select(PerfilRecepcionista).where(PerfilRecepcionista.user_id == user_id))
             rep = res.scalar_one_or_none()
@@ -367,6 +394,21 @@ async def change_password(user_id: int, nova: str) -> None:
         u = await session.get(UsuarioSistema, user_id)
         if not u:
             raise ValueError(NOT_FOUND_MSG)
+        
+        # Verificar se o usuário possui perfil que requer clínica
+        if u.perfil in (PerfilUsuario.professor, PerfilUsuario.aluno):
+            # Verificar se existe o perfil específico com clínica
+            if u.perfil == PerfilUsuario.professor:
+                res = await session.execute(select(PerfilProfessor).where(PerfilProfessor.user_id == user_id))
+                prof = res.scalar_one_or_none()
+                if not prof or not prof.clinica_id:
+                    raise ValueError(f"Usuário {u.perfil.value} deve ter uma clínica associada")
+            elif u.perfil == PerfilUsuario.aluno:
+                res = await session.execute(select(PerfilAluno).where(PerfilAluno.user_id == user_id))
+                alu = res.scalar_one_or_none()
+                if not alu or not alu.clinica_id:
+                    raise ValueError(f"Usuário {u.perfil.value} deve ter uma clínica associada")
+        
         u.senha_hash = hash_password(nova)
         await session.commit()
 
@@ -735,6 +777,9 @@ class UsersApp(tk.Tk):
                 if hasattr(widget, 'grid_remove'):
                     widget.grid_remove()
         
+        # Limpar campos que não pertencem ao perfil atual
+        self._clear_profile_fields_except(perfil)
+        
         # Mostrar campos do perfil atual
         if perfil in self.profile_fields:
             row = self.profile_start_row
@@ -752,6 +797,15 @@ class UsersApp(tk.Tk):
                 row += 1
                 fields['telefone_label'].grid(row=row, column=0, sticky="e", padx=5, pady=5)
                 fields['telefone_entry'].grid(row=row, column=1, sticky="w", padx=5)
+
+    def _clear_profile_fields_except(self, keep_perfil):
+        """Limpa os campos específicos dos perfis que não são o atual"""
+        for profile_type, fields in self.profile_fields.items():
+            if profile_type != keep_perfil:
+                # Limpar os valores dos campos
+                for field_name, widget in fields.items():
+                    if 'var' in field_name and hasattr(widget, 'set'):
+                        widget.set("")
 
     def _create_details_form(self):
         """Cria o formulário de detalhes do usuário"""
@@ -1190,12 +1244,24 @@ class UsersApp(tk.Tk):
                 clinica_id = self.get_clinica_id_from_selection(self.cmb_clinica.get())
                 nova_senha = self.entry_nova_senha.get().strip()
                 
+                # Coletar campos específicos dos perfis
+                matricula = None
+                telefone_academico = None
+                
+                if perfil == 'aluno' and 'aluno' in self.profile_fields:
+                    matricula = self.profile_fields['aluno']['matricula_var'].get().strip() or None
+                    telefone_academico = self.profile_fields['aluno']['telefone_var'].get().strip() or None
+                elif perfil == 'professor' and 'professor' in self.profile_fields:
+                    telefone_academico = self.profile_fields['professor']['telefone_var'].get().strip() or None
+                
                 print(f"Valores corretos (lidos dos widgets):")
                 print(f"  entry_nome.get(): '{nome}'")
                 print(f"  entry_email.get(): '{email}'")
                 print(f"  entry_cpf.get(): '{cpf}'")
                 print(f"  cmb_perfil.get(): '{perfil}'")
                 print(f"  clinica_id: {clinica_id}")
+                print(f"  matricula: '{matricula}'")
+                print(f"  telefone_academico: '{telefone_academico}'")
                 print(f"  entry_nova_senha.get(): '{'***' if nova_senha else '(vazia)'}'")
             except Exception as e:
                 print(f"Erro ao ler widgets diretamente: {e}")
@@ -1222,6 +1288,10 @@ class UsersApp(tk.Tk):
                 mudancas.append('perfil')
             if clinica_id != dados_originais.get('clinica_id'):
                 mudancas.append('clinica_id')
+            if matricula != dados_originais.get('profile_data', {}).get('matricula'):
+                mudancas.append('matricula')
+            if telefone_academico != dados_originais.get('profile_data', {}).get('telefone'):
+                mudancas.append('telefone_academico')
             if nova_senha:  # Se foi fornecida uma nova senha
                 mudancas.append('senha')
                 
@@ -1233,7 +1303,16 @@ class UsersApp(tk.Tk):
                 return
             
             # Atualizar no banco
-            self.run_async(update_user(uid, nome=nome, email=email, cpf=cpf, perfil=perfil, clinica_id=clinica_id))
+            self.run_async(update_user(
+                uid, 
+                nome=nome, 
+                email=email, 
+                cpf=cpf, 
+                perfil=perfil, 
+                clinica_id=clinica_id,
+                matricula=matricula,
+                telefone_academico=telefone_academico
+            ))
             
             # Atualizar senha separadamente se fornecida
             if nova_senha:
@@ -1305,6 +1384,22 @@ class UsersApp(tk.Tk):
                 return
             uid = int(self.var_id.get())
             nova = self.var_nova_senha.get()
+            
+            if not nova:
+                messagebox.showwarning("Senha necessária", "Digite a nova senha")
+                return
+                
+            # Verificar se é um usuário aluno/professor e se tem clínica
+            user_data = self.selected_user
+            if user_data and user_data.get('perfil') in ('aluno', 'professor'):
+                if not user_data.get('clinica_id'):
+                    messagebox.showerror(
+                        "Erro de dados", 
+                        f"Usuário {user_data.get('perfil')} deve ter uma clínica associada.\n"
+                        "Por favor, corrija os dados do usuário primeiro."
+                    )
+                    return
+            
             self.run_async(change_password(uid, nova))
             self.var_nova_senha.set("")
             messagebox.showinfo("Sucesso", "Senha alterada")
